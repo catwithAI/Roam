@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 #
-# ttmux - tmux 便捷封装
+# ttmux - AI-native tmux wrapper
+# https://github.com/ybz21/ttmux
 #
 
 set -euo pipefail
 
+TTMUX_VERSION="0.2.0"
 TMUX_BIN="$(command -v tmux)"
+TTMUX_DATA="${TTMUX_DATA:-${HOME}/.local/share/ttmux}"
+TTMUX_LOGS="${TTMUX_DATA}/logs"
+TTMUX_GROUPS="${TTMUX_DATA}/groups"
+
+mkdir -p "$TTMUX_LOGS" "$TTMUX_GROUPS"
 
 # ── 颜色 ──
 bold=$'\033[1m'
@@ -15,6 +22,7 @@ green=$'\033[32m'
 yellow=$'\033[33m'
 red=$'\033[31m'
 blue=$'\033[34m'
+magenta=$'\033[35m'
 reset=$'\033[0m'
 
 # ── 图标 ──
@@ -24,6 +32,9 @@ icon_ok="✔"
 icon_err="✘"
 icon_info="●"
 icon_warn="⚠"
+icon_run="⟳"
+icon_done="■"
+icon_group="◆"
 
 msg_ok()   { echo -e " ${green}${icon_ok}${reset} $*"; }
 msg_err()  { echo -e " ${red}${icon_err}${reset} $*" >&2; }
@@ -43,7 +54,6 @@ _session_exists() {
     "$TMUX_BIN" has-session -t "$1" 2>/dev/null
 }
 
-# 带格式的会话列表
 _pretty_sessions() {
     if ! "$TMUX_BIN" list-sessions 2>/dev/null | head -1 &>/dev/null; then
         msg_info "没有活跃会话"
@@ -60,7 +70,6 @@ _pretty_sessions() {
     echo ""
 }
 
-# 交互选择会话
 _pick_session() {
     local prompt="${1:-选择会话}"
     local sessions
@@ -91,7 +100,6 @@ _pick_session() {
     done
     echo "" >&2
     read -r -p "   输入编号或名称: " choice </dev/tty
-    # 数字选择
     if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#names[@]} )); then
         echo "${names[$((choice-1))]}"
     else
@@ -99,14 +107,321 @@ _pick_session() {
     fi
 }
 
-# 确认操作
 _confirm() {
     local prompt="${1:-确定要继续吗?}"
     read -r -p "   ${prompt} [y/N] " ans </dev/tty
     [[ "$ans" =~ ^[Yy]$ ]]
 }
 
+# ── JSON 输出 ──
+_json_sessions() {
+    echo "["
+    local first=true
+    while IFS=$'\t' read -r name windows created attached; do
+        [[ "$first" == true ]] || echo ","
+        first=false
+        printf '  {"name":"%s","windows":%s,"created":"%s","attached":%s}' \
+            "$name" "$windows" "$created" "$attached"
+    done < <("$TMUX_BIN" list-sessions -F '#{session_name}	#{session_windows}	#{session_created_string}	#{session_attached}' 2>/dev/null)
+    echo ""
+    echo "]"
+}
+
+# ══════════════════════════════════════════
+# ── Task Group 管理 ──
+# ══════════════════════════════════════════
+
+_group_file() {
+    echo "${TTMUX_GROUPS}/${1}.group"
+}
+
+_group_exists() {
+    [[ -f "$(_group_file "$1")" ]]
+}
+
+_group_sessions() {
+    local gf
+    gf=$(_group_file "$1")
+    [[ -f "$gf" ]] && cat "$gf" || true
+}
+
+_group_add_session() {
+    local group="$1" session="$2"
+    echo "$session" >> "$(_group_file "$group")"
+}
+
+_group_list() {
+    local groups=()
+    shopt -s nullglob
+    for f in "${TTMUX_GROUPS}"/*.group; do
+        local name
+        name=$(basename "$f" .group)
+        groups+=("$name")
+    done
+    if [[ ${#groups[@]} -eq 0 ]]; then
+        msg_info "没有任务组"
+        return
+    fi
+    echo ""
+    for g in "${groups[@]}"; do
+        local total=0 alive=0 dead=0
+        while IFS= read -r sess; do
+            [[ -n "$sess" ]] || continue
+            ((total++))
+            if _session_exists "$sess"; then
+                ((alive++))
+            else
+                ((dead++))
+            fi
+        done < <(_group_sessions "$g")
+        local status_str
+        if [[ $alive -eq 0 && $total -gt 0 ]]; then
+            status_str="${green}全部完成${reset}"
+        elif [[ $alive -eq $total ]]; then
+            status_str="${yellow}运行中${reset}"
+        else
+            status_str="${cyan}${alive}/${total} 运行中${reset}"
+        fi
+        echo -e "   ${icon_group} ${bold}${g}${reset}  ${dim}${total} 个任务${reset}  ${status_str}"
+    done
+    echo ""
+}
+
+_group_status() {
+    local group="$1"
+    if ! _group_exists "$group"; then
+        msg_err "任务组 ${bold}${group}${reset} 不存在"
+        return 1
+    fi
+    echo ""
+    echo -e "   ${icon_group} ${bold}${group}${reset} 任务状态"
+    echo -e "   ${dim}$(printf '─%.0s' {1..40})${reset}"
+    echo ""
+    while IFS= read -r sess; do
+        [[ -n "$sess" ]] || continue
+        if _session_exists "$sess"; then
+            local proc
+            proc=$("$TMUX_BIN" display-message -t "$sess" -p '#{pane_current_command}' 2>/dev/null || echo "?")
+            local dead
+            dead=$("$TMUX_BIN" display-message -t "$sess" -p '#{pane_dead}' 2>/dev/null || echo "0")
+            if [[ "$dead" == "1" ]]; then
+                local exit_code
+                exit_code=$("$TMUX_BIN" display-message -t "$sess" -p '#{pane_dead_status}' 2>/dev/null || echo "?")
+                if [[ "$exit_code" == "0" ]]; then
+                    echo -e "   ${green}${icon_ok}${reset} ${bold}${sess}${reset}  ${green}完成${reset} (exit 0)"
+                else
+                    echo -e "   ${red}${icon_err}${reset} ${bold}${sess}${reset}  ${red}失败${reset} (exit ${exit_code})"
+                fi
+            else
+                echo -e "   ${yellow}${icon_run}${reset} ${bold}${sess}${reset}  ${yellow}运行中${reset}  ${dim}[${proc}]${reset}"
+            fi
+        else
+            local logfile="${TTMUX_LOGS}/${sess}.log"
+            if [[ -f "$logfile" ]]; then
+                echo -e "   ${green}${icon_done}${reset} ${bold}${sess}${reset}  ${dim}已结束 (日志可用)${reset}"
+            else
+                echo -e "   ${dim}${icon_done}${reset} ${bold}${sess}${reset}  ${dim}已结束${reset}"
+            fi
+        fi
+    done < <(_group_sessions "$group")
+    echo ""
+}
+
+_group_status_json() {
+    local group="$1"
+    if ! _group_exists "$group"; then
+        echo '{"error":"group not found"}'
+        return 1
+    fi
+    echo '{"group":"'"$group"'","tasks":['
+    local first=true
+    while IFS= read -r sess; do
+        [[ -n "$sess" ]] || continue
+        [[ "$first" == true ]] || echo ","
+        first=false
+        local status="exited" proc="" exit_code=""
+        if _session_exists "$sess"; then
+            proc=$("$TMUX_BIN" display-message -t "$sess" -p '#{pane_current_command}' 2>/dev/null || echo "")
+            local dead
+            dead=$("$TMUX_BIN" display-message -t "$sess" -p '#{pane_dead}' 2>/dev/null || echo "0")
+            if [[ "$dead" == "1" ]]; then
+                exit_code=$("$TMUX_BIN" display-message -t "$sess" -p '#{pane_dead_status}' 2>/dev/null || echo "")
+                status="done"
+            else
+                status="running"
+            fi
+        fi
+        printf '  {"name":"%s","status":"%s","process":"%s","exit_code":"%s"}' \
+            "$sess" "$status" "$proc" "$exit_code"
+    done < <(_group_sessions "$group")
+    echo ""
+    echo ']}'
+}
+
+# ══════════════════════════════════════════
+# ── spawn: 批量创建任务 ──
+# ══════════════════════════════════════════
+
+_do_spawn() {
+    local group="$1"
+    shift
+
+    if _group_exists "$group"; then
+        msg_warn "任务组 ${bold}${group}${reset} 已存在，追加任务"
+    fi
+
+    local count=0
+    while [[ $# -ge 2 ]]; do
+        local name="$1" cmd="$2"
+        shift 2
+
+        local sess_name="${group}-${name}"
+        if _session_exists "$sess_name"; then
+            msg_warn "会话 ${bold}${sess_name}${reset} 已存在，跳过"
+            continue
+        fi
+
+        # 创建 detached session，开启日志，发送命令
+        "$TMUX_BIN" new-session -d -s "$sess_name" -x 200 -y 50
+        "$TMUX_BIN" pipe-pane -t "$sess_name" -o "cat >> '${TTMUX_LOGS}/${sess_name}.log'"
+        "$TMUX_BIN" send-keys -t "$sess_name" "$cmd" C-m
+
+        _group_add_session "$group" "$sess_name"
+        ((count++))
+        msg_ok "启动 ${bold}${sess_name}${reset}: ${dim}${cmd}${reset}"
+    done
+
+    if [[ $# -eq 1 ]]; then
+        msg_warn "忽略落单参数: $1 ${dim}(spawn 需要成对的 name+cmd)${reset}"
+    fi
+
+    echo ""
+    msg_info "任务组 ${bold}${group}${reset} 已启动 ${count} 个任务"
+}
+
+_do_spawn_file() {
+    local group="$1" file="$2"
+    if [[ ! -f "$file" ]]; then
+        msg_err "文件不存在: ${file}"
+        return 1
+    fi
+    local args=()
+    while IFS= read -r line; do
+        [[ -n "$line" && ! "$line" =~ ^# ]] || continue
+        local name cmd
+        name=$(echo "$line" | awk '{print $1}')
+        cmd=$(echo "$line" | cut -d' ' -f2-)
+        args+=("$name" "$cmd")
+    done < "$file"
+    _do_spawn "$group" "${args[@]}"
+}
+
+# ══════════════════════════════════════════
+# ── capture: 捕获输出 ──
+# ══════════════════════════════════════════
+
+_do_capture() {
+    local target="$1"
+    local lines="${2:-200}"
+    if _session_exists "$target"; then
+        "$TMUX_BIN" capture-pane -t "$target" -p -S "-${lines}"
+    else
+        # 回退到日志文件
+        local logfile="${TTMUX_LOGS}/${target}.log"
+        if [[ -f "$logfile" ]]; then
+            tail -n "$lines" "$logfile"
+        else
+            msg_err "会话不存在且无日志: ${target}"
+            return 1
+        fi
+    fi
+}
+
+# ══════════════════════════════════════════
+# ── wait: 等待任务完成 ──
+# ══════════════════════════════════════════
+
+_do_wait_session() {
+    local sess="$1"
+    local timeout="${2:-300}"
+    local elapsed=0
+    while (( elapsed < timeout )); do
+        if ! _session_exists "$sess"; then
+            return 0
+        fi
+        local dead
+        dead=$("$TMUX_BIN" display-message -t "$sess" -p '#{pane_dead}' 2>/dev/null || echo "1")
+        if [[ "$dead" == "1" ]]; then
+            return 0
+        fi
+        sleep 1
+        ((elapsed++))
+    done
+    msg_warn "等待超时 (${timeout}s): ${sess}"
+    return 1
+}
+
+_do_wait_group() {
+    local group="$1"
+    local timeout="${2:-300}"
+    if ! _group_exists "$group"; then
+        msg_err "任务组不存在: ${group}"
+        return 1
+    fi
+    msg_info "等待任务组 ${bold}${group}${reset} 完成... ${dim}(超时 ${timeout}s)${reset}"
+    local all_done=true
+    while IFS= read -r sess; do
+        [[ -n "$sess" ]] || continue
+        if ! _do_wait_session "$sess" "$timeout"; then
+            all_done=false
+        fi
+    done < <(_group_sessions "$group")
+    if [[ "$all_done" == true ]]; then
+        msg_ok "任务组 ${bold}${group}${reset} 全部完成"
+    else
+        msg_warn "任务组 ${bold}${group}${reset} 部分超时"
+    fi
+}
+
+# ══════════════════════════════════════════
+# ── collect: 收集输出 ──
+# ══════════════════════════════════════════
+
+_do_collect() {
+    local group="$1"
+    local format="${2:-text}"
+    if ! _group_exists "$group"; then
+        msg_err "任务组不存在: ${group}"
+        return 1
+    fi
+
+    if [[ "$format" == "json" ]]; then
+        echo '{"group":"'"$group"'","results":['
+        local first=true
+        while IFS= read -r sess; do
+            [[ -n "$sess" ]] || continue
+            [[ "$first" == true ]] || echo ","
+            first=false
+            local output=""
+            output=$(_do_capture "$sess" 100 2>/dev/null | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')
+            printf '  {"task":"%s","output":%s}' "$sess" "$output"
+        done < <(_group_sessions "$group")
+        echo ""
+        echo ']}'
+    else
+        while IFS= read -r sess; do
+            [[ -n "$sess" ]] || continue
+            echo -e "\n${bold}━━━ ${sess} ━━━${reset}"
+            _do_capture "$sess" 50 2>/dev/null || echo "(无输出)"
+        done < <(_group_sessions "$group")
+        echo ""
+    fi
+}
+
+# ══════════════════════════════════════════
 # ── 补全安装 ──
+# ══════════════════════════════════════════
+
 _install_completion() {
     local comp_dir="${HOME}/.bash_completion.d"
     local comp_file="${comp_dir}/ttmux"
@@ -116,34 +431,37 @@ _ttmux_completions() {
     local cur prev cmds
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    cmds="ls new a attach d detach kill killall rename nw lw kw sp split kp send info source help"
+    cmds="ls new a attach d detach kill killall rename nw lw kw sp split kp send info source help spawn group capture wait collect status completion"
 
     case "$prev" in
         ttmux)
             COMPREPLY=($(compgen -W "$cmds" -- "$cur"))
-            return
-            ;;
-        a|attach|kill|rename|send|d|detach)
+            return ;;
+        a|attach|kill|rename|send|d|detach|capture|status)
             local sessions
             sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null)
             COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
-            return
-            ;;
+            return ;;
+        group)
+            COMPREPLY=($(compgen -W "new ls status kill" -- "$cur"))
+            return ;;
         sp|split)
             COMPREPLY=($(compgen -W "-h -v" -- "$cur"))
-            return
-            ;;
+            return ;;
         kw)
             local windows
             windows=$(tmux list-windows -F '#{window_index}' 2>/dev/null)
             COMPREPLY=($(compgen -W "$windows" -- "$cur"))
-            return
-            ;;
+            return ;;
+        wait|collect)
+            local groups
+            groups=$(ls ~/.local/share/ttmux/groups/*.group 2>/dev/null | xargs -I{} basename {} .group)
+            COMPREPLY=($(compgen -W "$groups" -- "$cur"))
+            return ;;
     esac
 }
 complete -F _ttmux_completions ttmux
 COMP
-    # 确保 .bashrc 加载补全
     local source_line="[[ -f ~/.bash_completion.d/ttmux ]] && source ~/.bash_completion.d/ttmux"
     if ! grep -qF "bash_completion.d/ttmux" ~/.bashrc 2>/dev/null; then
         echo "" >> ~/.bashrc
@@ -154,53 +472,71 @@ COMP
     msg_info "运行 ${cyan}source ~/.bashrc${reset} 或重开终端生效"
 }
 
+# ══════════════════════════════════════════
+# ── 帮助 ──
+# ══════════════════════════════════════════
+
 show_help() {
     cat <<EOF
 
-  ${bold}ttmux${reset} ${dim}— tmux 便捷封装${reset}
+  ${bold}ttmux${reset} ${dim}v${TTMUX_VERSION} — AI-native tmux wrapper${reset}
 
   ${bold}用法${reset}:  ttmux ${cyan}<命令>${reset} [参数...]
 
   ${bold}会话管理${reset}
-    ${green}ls${reset}                        列出所有会话
-    ${green}new${reset}  ${dim}[名称]${reset}               新建会话
-    ${green}a${reset}    ${dim}[名称]${reset}               附加会话 ${dim}(无参数交互选择)${reset}
-    ${green}d${reset}    ${dim}[名称]${reset}               分离会话 ${dim}(无参数分离当前)${reset}
-    ${green}kill${reset} ${dim}[名称]${reset}               关闭会话 ${dim}(无参数交互选择)${reset}
-    ${green}killall${reset}                   关闭所有会话
-    ${green}rename${reset} ${dim}<旧名> <新名>${reset}      重命名会话
+    ${green}ls${reset}    ${dim}[--json]${reset}              列出所有会话
+    ${green}new${reset}   ${dim}[名称]${reset}                新建会话
+    ${green}a${reset}     ${dim}[名称]${reset}                附加会话 ${dim}(无参数交互选择)${reset}
+    ${green}d${reset}     ${dim}[名称]${reset}                分离会话
+    ${green}kill${reset}  ${dim}[名称]${reset}                关闭会话
+    ${green}killall${reset}                    关闭所有会话
+    ${green}rename${reset} ${dim}<旧名> <新名>${reset}        重命名会话
 
-  ${bold}窗口管理${reset}
-    ${green}nw${reset}   ${dim}[名称]${reset}               新建窗口
-    ${green}lw${reset}                        列出窗口
-    ${green}kw${reset}   ${dim}[窗口号]${reset}             关闭窗口
+  ${bold}任务编排 ${magenta}(AI-native)${reset}
+    ${green}spawn${reset}  ${dim}<组名> <名称> <命令> ...${reset}  批量创建并行任务
+    ${green}spawn${reset}  ${dim}--file <组名> <文件>${reset}      从文件读取任务
+    ${green}group${reset}  ${dim}ls${reset}                     列出所有任务组
+    ${green}group${reset}  ${dim}status <组名>${reset}           查看任务组状态
+    ${green}group${reset}  ${dim}kill <组名>${reset}             关闭整个任务组
+    ${green}status${reset} ${dim}<组名> [--json]${reset}        查看任务状态
+    ${green}wait${reset}   ${dim}<组名> [--timeout N]${reset}   等待任务组完成
+    ${green}collect${reset} ${dim}<组名> [--json]${reset}       收集所有任务输出
+    ${green}capture${reset} ${dim}<会话> [--lines N]${reset}    捕获会话输出
 
-  ${bold}窗格管理${reset}
-    ${green}sp${reset}   ${dim}[-h|-v]${reset}              分割窗格 ${dim}(默认垂直)${reset}
-    ${green}kp${reset}                        关闭当前窗格
+  ${bold}窗口 / 窗格${reset}
+    ${green}nw${reset}    ${dim}[名称]${reset}                新建窗口
+    ${green}lw${reset}                         列出窗口
+    ${green}kw${reset}    ${dim}[窗口号]${reset}              关闭窗口
+    ${green}sp${reset}    ${dim}[-h|-v]${reset}               分割窗格 ${dim}(默认垂直)${reset}
+    ${green}kp${reset}                         关闭窗格
 
-  ${bold}发送命令${reset}
-    ${green}send${reset} ${dim}[会话] <命令>${reset}         向会话发送命令
-
-  ${bold}工具${reset}
-    ${green}info${reset}                      服务器信息
-    ${green}source${reset}                    重载 ~/.tmux.conf
-    ${green}completion${reset}                安装 Tab 补全
-    ${green}help${reset}                      显示此帮助
+  ${bold}其他${reset}
+    ${green}send${reset}   ${dim}[会话] <命令>${reset}        发送命令
+    ${green}info${reset}                       服务器信息
+    ${green}source${reset}                     重载 tmux.conf
+    ${green}completion${reset}                 安装 Tab 补全
+    ${green}help${reset}                       显示此帮助
 
   ${bold}示例${reset}
-    ${dim}\$${reset} ttmux new work            ${dim}# 新建 work 会话${reset}
-    ${dim}\$${reset} ttmux a                   ${dim}# 交互选择并附加${reset}
-    ${dim}\$${reset} ttmux sp -h               ${dim}# 水平分割窗格${reset}
-    ${dim}\$${reset} ttmux send work "make"    ${dim}# 向 work 发命令${reset}
-    ${dim}\$${reset} ttmux kill                ${dim}# 交互选择并关闭${reset}
+    ${dim}\$${reset} ttmux new work                    ${dim}# 新建会话${reset}
+    ${dim}\$${reset} ttmux spawn build \\
+        "lint" "npm run lint" \\
+        "test" "npm test" \\
+        "typecheck" "npx tsc --noEmit"       ${dim}# 三个并行任务${reset}
+    ${dim}\$${reset} ttmux status build                ${dim}# 查看进度${reset}
+    ${dim}\$${reset} ttmux wait build                  ${dim}# 等待全部完成${reset}
+    ${dim}\$${reset} ttmux collect build --json         ${dim}# 收集结果${reset}
+    ${dim}\$${reset} ttmux group kill build             ${dim}# 清理${reset}
 
   ${dim}未识别的命令会直接转发给 tmux${reset}
 
 EOF
 }
 
-# ── 无参数时显示帮助 ──
+# ══════════════════════════════════════════
+# ── 主入口 ──
+# ══════════════════════════════════════════
+
 if [[ $# -eq 0 ]]; then
     show_help
     exit 0
@@ -213,8 +549,17 @@ case "$cmd" in
     -h|--help|help)
         show_help
         ;;
+    -v|--version)
+        echo "ttmux v${TTMUX_VERSION}"
+        ;;
+
+    # ── 会话管理 ──
     ls)
-        _pretty_sessions
+        if [[ "${1:-}" == "--json" ]]; then
+            _json_sessions
+        else
+            _pretty_sessions
+        fi
         ;;
     new)
         if [[ $# -ge 1 ]]; then
@@ -301,6 +646,117 @@ case "$cmd" in
         "$TMUX_BIN" rename-session -t "$old" "$new"
         msg_ok "${bold}${old}${reset} → ${bold}${new}${reset}"
         ;;
+
+    # ── 任务编排 ──
+    spawn)
+        if [[ "${1:-}" == "--file" ]]; then
+            shift
+            if [[ $# -lt 2 ]]; then
+                msg_err "用法: ttmux spawn --file <组名> <文件>"
+                exit 1
+            fi
+            _do_spawn_file "$1" "$2"
+        else
+            if [[ $# -lt 3 ]]; then
+                msg_err "用法: ttmux spawn <组名> <任务名> <命令> [<任务名> <命令> ...]"
+                exit 1
+            fi
+            _do_spawn "$@"
+        fi
+        ;;
+    group)
+        subcmd="${1:-ls}"
+        shift || true
+        case "$subcmd" in
+            ls|list)
+                _group_list
+                ;;
+            status)
+                if [[ $# -lt 1 ]]; then
+                    msg_err "用法: ttmux group status <组名>"
+                    exit 1
+                fi
+                if [[ "${2:-}" == "--json" ]]; then
+                    _group_status_json "$1"
+                else
+                    _group_status "$1"
+                fi
+                ;;
+            kill)
+                if [[ $# -lt 1 ]]; then
+                    msg_err "用法: ttmux group kill <组名>"
+                    exit 1
+                fi
+                local_group="$1"
+                while IFS= read -r sess; do
+                    [[ -n "$sess" ]] || continue
+                    if _session_exists "$sess"; then
+                        "$TMUX_BIN" kill-session -t "$sess" 2>/dev/null || true
+                    fi
+                done < <(_group_sessions "$local_group")
+                rm -f "$(_group_file "$local_group")"
+                msg_ok "任务组 ${bold}${local_group}${reset} 已清理"
+                ;;
+            *)
+                msg_err "未知子命令: group ${subcmd}"
+                echo -e "   可用: ls, status, kill"
+                exit 1
+                ;;
+        esac
+        ;;
+    status)
+        if [[ $# -lt 1 ]]; then
+            _pretty_sessions
+            echo ""
+            _group_list
+        elif [[ "${2:-}" == "--json" ]]; then
+            _group_status_json "$1"
+        else
+            _group_status "$1"
+        fi
+        ;;
+    wait)
+        timeout=300
+        group=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --timeout) timeout="$2"; shift 2 ;;
+                *) group="$1"; shift ;;
+            esac
+        done
+        if [[ -z "$group" ]]; then
+            msg_err "用法: ttmux wait <组名> [--timeout N]"
+            exit 1
+        fi
+        _do_wait_group "$group" "$timeout"
+        ;;
+    capture)
+        if [[ $# -lt 1 ]]; then
+            msg_err "用法: ttmux capture <会话名> [--lines N]"
+            exit 1
+        fi
+        target="$1"; shift
+        lines=200
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --lines|-n) lines="$2"; shift 2 ;;
+                *) shift ;;
+            esac
+        done
+        _do_capture "$target" "$lines"
+        ;;
+    collect)
+        if [[ $# -lt 1 ]]; then
+            msg_err "用法: ttmux collect <组名> [--json]"
+            exit 1
+        fi
+        group="$1"; shift
+        fmt="text"
+        [[ "${1:-}" == "--json" ]] && fmt="json"
+        _do_collect "$group" "$fmt"
+        ;;
+
+    # ── 窗口 / 窗格 ──
     nw)
         if [[ $# -ge 1 ]]; then
             "$TMUX_BIN" new-window -n "$1"
@@ -338,6 +794,8 @@ case "$cmd" in
         "$TMUX_BIN" kill-pane "$@"
         msg_ok "窗格已关闭"
         ;;
+
+    # ── 其他 ──
     send)
         if [[ $# -lt 1 ]]; then
             msg_err "用法: ttmux send [会话名] <命令>"
@@ -374,7 +832,6 @@ case "$cmd" in
         _install_completion
         ;;
     *)
-        # 其他命令直接转发给 tmux
         "$TMUX_BIN" "$cmd" "$@"
         ;;
 esac
