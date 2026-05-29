@@ -48,16 +48,52 @@ fi
 chmod +x "${INSTALL_DIR}/ttmux"
 info "ttmux 已安装到 ${INSTALL_DIR}/ttmux"
 
-# 安装 Claude Code skill
+# 安装 Claude Code skills
+mkdir -p "$SKILL_DIR"
+
+# ttmux skill
 if [[ -f "${SCRIPT_DIR}/skills/tmux/SKILL.md" ]]; then
-    mkdir -p "$SKILL_DIR"
     cp "${SCRIPT_DIR}/skills/tmux/SKILL.md" "${SKILL_DIR}/ttmux.md"
-    info "Claude Code skill 已安装"
+    info "ttmux skill 已安装"
 elif curl -fsSL "https://raw.githubusercontent.com/${REPO}/${BRANCH}/skills/tmux/SKILL.md" \
         -o /tmp/ttmux-skill.md 2>/dev/null; then
-    mkdir -p "$SKILL_DIR"
     mv /tmp/ttmux-skill.md "${SKILL_DIR}/ttmux.md"
-    info "Claude Code skill 已安装"
+    info "ttmux skill 已安装"
+fi
+
+# father skill — 合并多个子文档为一个文件
+install_father_skill() {
+    local src_dir="$1"
+    local dest="${SKILL_DIR}/father.md"
+    if [[ -f "${src_dir}/SKILL.md" ]]; then
+        cat "${src_dir}/SKILL.md" > "$dest"
+        for doc in patrol approve test-push review concurrency memory; do
+            if [[ -f "${src_dir}/${doc}.md" ]]; then
+                echo "" >> "$dest"
+                echo "" >> "$dest"
+                cat "${src_dir}/${doc}.md" >> "$dest"
+            fi
+        done
+        info "father skill 已安装"
+        return 0
+    fi
+    return 1
+}
+
+if [[ -d "${SCRIPT_DIR}/skills/father" ]]; then
+    install_father_skill "${SCRIPT_DIR}/skills/father"
+else
+    # 从 GitHub 下载各子文档并合并
+    local_tmp=$(mktemp -d)
+    all_ok=true
+    for f in SKILL.md patrol.md approve.md test-push.md review.md concurrency.md; do
+        curl -fsSL "https://raw.githubusercontent.com/${REPO}/${BRANCH}/skills/father/${f}" \
+            -o "${local_tmp}/${f}" 2>/dev/null || { all_ok=false; break; }
+    done
+    if $all_ok; then
+        install_father_skill "$local_tmp"
+    fi
+    rm -rf "$local_tmp"
 fi
 
 # 检查 PATH
