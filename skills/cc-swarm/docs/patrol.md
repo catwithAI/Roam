@@ -18,12 +18,18 @@ ttmux swarm collect <名>    # 各成员的输出
 
 成员会话名形如 `<名>-<成员>`。监护时：
 - **目标对照**：`swarm status` 顶部的「目标」就是验收基准，集成时逐条核对。
-- **依赖解锁**：带依赖且依赖未满足的成员会被 ttmux **挂起为 pending**（`swarm status` 底部「挂起(等依赖)」段列出，`依赖→ X`）。依赖成员完成后：
-  - `ttmux swarm status <名>` **会顺手自动解锁**依赖已满足的挂起成员（巡检每轮调它即可）；
-  - 也可显式 `ttmux swarm activate <名>` 解锁全部就绪成员，或 `ttmux swarm activate <名> <成员>` 解锁指定成员。
+- **依赖解锁（关键闭环）**：带依赖且依赖未满足的成员会被 ttmux **挂起为 pending**（`swarm status` 底部「挂起(等依赖)」段列出，`依赖→ X`）。解锁靠你打「完成」标记驱动：
+  - **agent 成员是长驻会话**（claude 不退出），脚本判不出它「完成」。所以**当你读 capture 判定某成员 X 真的完成了**（输出了总结、idle 在空 prompt、产出对照需求 OK），就执行：
+    ```bash
+    ttmux swarm done <名> X        # 标记成员 X 完成 → 自动级联解锁依赖 X 的下游成员
+    ```
+    这一步是把「AI 的完成判断」喂给门控的**唯一**入口，不打标 → 下游永远挂着。
+  - 打标后 `ttmux swarm status <名>` 每轮也会顺手自动解锁就绪的挂起成员；也可显式 `ttmux swarm activate <名>`。
+  - task 成员若命令会退出，脚本能自动判完成；判不准时同样用 `swarm done <名> X` 兜底。
+  - 依赖成员**失败但你决定继续**：`ttmux swarm activate <名> X --force` 强制解锁 X（无视依赖）。
   - X 没完成前**不要**手动 spawn/催挂起成员——交给门控。
 - **自我排除**：跳过指挥会话自己（`supervisor`，通常 `cc-<名>`）。
-- **闭环**：全部成员完成（且无挂起残留）并对照目标验收通过后，`ttmux swarm done <名>`，再汇报用户。
+- **闭环**：每个成员完成就 `swarm done <名> <成员>` 打标解锁下游；全部成员完成（`swarm status` 无挂起残留）并对照目标验收通过后，`ttmux swarm done <名>`（不带成员=标记整群完成），再汇报用户。
 
 > 蜂群作用域下，下面流程里的「`cc-*` 会话」一律替换成「该蜂群的成员会话」。
 
@@ -80,7 +86,7 @@ ttmux capture <session> --lines 40
 2. **有待发命令的** → prompt 里有用户（或上轮 cc-swarm）输入的文字但没按 Enter，帮它发 `tmux send-keys -t <session> Enter`
 3. **在提问的** → 回答问题，解除阻塞
 4. **出错的** → 诊断修复
-5. **已完成的** → 安排下一步（测试/review/commit）
+5. **已完成的** → 安排下一步（测试/review/commit）；蜂群作用域下，确认完成后 `ttmux swarm done <名> <成员>` 打标，解锁等它的下游
 6. **执行中的** → 跳过
 
 ### Step 6: 间隔等待

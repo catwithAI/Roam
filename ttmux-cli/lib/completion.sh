@@ -31,7 +31,7 @@ _ttmux_completions() {
         swarm)
             COMPREPLY=($(compgen -W "new add ls status activate collect adopt done archive rm" -- "$cur"))
             return ;;
-        adopt|activate)
+        adopt|activate|done|archive)
             local swarms
             swarms=$(ls -d ~/.local/share/ttmux/swarms/*/ 2>/dev/null | xargs -I{} basename {})
             COMPREPLY=($(compgen -W "$swarms" -- "$cur"))

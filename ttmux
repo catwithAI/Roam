@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-TTMUX_VERSION="0.4.0"
+TTMUX_VERSION="0.4.1"
 TMUX_BIN="$(command -v tmux)"
 TTMUX_DATA="${TTMUX_DATA:-${HOME}/.local/share/ttmux}"
 TTMUX_LOGS="${TTMUX_DATA}/logs"
@@ -881,6 +881,26 @@ _swarm_dep_set() {
     printf '%s\n' "$3" > "${dir}/${2}.txt"
 }
 
+# ── 完成标记：指挥(cc)判定成员已完成后显式打标，供依赖解锁 ──
+#
+# agent 成员是长驻会话(claude 不退出)，pane_dead 永不触发，靠脚本判不出「完成」。
+# 因此由指挥读输出做 AI 判断，再 `ttmux swarm done <群> <成员>` 打标记：
+#   ${TTMUX_SWARMS}/<群>/done/<成员>   (空文件即标记)
+# _swarm_member_done 优先认这个标记，于是下游依赖随之解锁。
+_swarm_done_dir() { echo "$(_swarm_dir "$1")/done"; }
+_swarm_member_marked_done() { [[ -f "$(_swarm_done_dir "$1")/${2}" ]]; }
+_swarm_member_mark_done() {
+    local d; d=$(_swarm_done_dir "$1"); mkdir -p "$d"; : > "${d}/${2}"
+}
+# 列出已显式标记完成的成员名(每行一个)
+_swarm_done_list() {
+    local root; root=$(_swarm_done_dir "$1")
+    [[ -d "$root" ]] || return 0
+    shopt -s nullglob
+    local f
+    for f in "$root"/*; do basename "$f"; done
+}
+
 # ── 依赖门控：pending 成员存储 + 解锁 ──
 #
 # 有依赖且依赖未满足的成员不立即 spawn，而是挂起为 pending：
@@ -911,9 +931,13 @@ _swarm_pending_list() {
     for d in "$root"/*/; do basename "$d"; done
 }
 
-# 成员是否已完成（用于依赖解锁）：会话已退出(pane_dead)或已消失但跑过(有日志)。
+# 成员是否已完成（用于依赖解锁）：
+#   1) 指挥显式标记完成(done 标记) —— agent 成员主要靠这条；
+#   2) 会话已退出(pane_dead)；
+#   3) 会话已消失但跑过(有日志)。
 # 仍 pending（从未 spawn、无日志）的成员 -> 未完成。
 _swarm_member_done() {
+    _swarm_member_marked_done "$1" "$2" && return 0
     local sess="${1}-${2}"
     if _session_exists "$sess"; then
         local dead
@@ -957,15 +981,17 @@ _swarm_spawn_pending() {
     _spawn_one "$swarm" "$member" "$type" "$payload" "$workdir"
 }
 
-# ttmux swarm activate <群> [成员] [--quiet]
+# ttmux swarm activate <群> [成员] [--quiet] [--force]
 # 扫描 pending 成员，依赖已满足的真正启动；级联解锁直到无新增。
+# --force: 无视依赖强制解锁(配合指定成员用，逃生口；如依赖成员失败但仍要继续)。
 _swarm_activate() {
     local swarm="$1"; shift || true
     if ! _swarm_exists "$swarm"; then msg_err "蜂群不存在: ${swarm}"; return 1; fi
-    local only="" quiet=""
+    local only="" quiet="" force=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --quiet) quiet=1; shift ;;
+            --force) force=1; shift ;;
             *) only="$1"; shift ;;
         esac
     done
@@ -976,12 +1002,13 @@ _swarm_activate() {
         while IFS= read -r m; do
             [[ -n "$m" ]] || continue
             [[ -n "$only" && "$m" != "$only" ]] && continue
-            if _swarm_deps_satisfied "$swarm" "$m"; then
+            if [[ -n "$force" ]] || _swarm_deps_satisfied "$swarm" "$m"; then
                 if _swarm_spawn_pending "$swarm" "$m"; then
                     _swarm_pending_clear "$swarm" "$m"
                     ((total_launched++)) || true
                     changed=1
-                    [[ -z "$quiet" ]] && msg_ok "解锁成员 ${bold}${m}${reset} ${dim}(依赖已满足)${reset}"
+                    local why="(依赖已满足)"; [[ -n "$force" ]] && why="(强制解锁, 无视依赖)"
+                    [[ -z "$quiet" ]] && msg_ok "解锁成员 ${bold}${m}${reset} ${dim}${why}${reset}"
                 fi
             fi
         done < <(_swarm_pending_list "$swarm")
@@ -1170,6 +1197,9 @@ _swarm_status() {
         fi
         echo -e "  ${yellow}${icon_run:-⏳}${reset} ${bold}${name}-${p}${reset} ${yellow}挂起${reset}  ${dim}依赖→ $(_swarm_dep_get "$name" "$p")${reset}"
     done < <(_swarm_pending_list "$name")
+    # 指挥已显式标记完成的成员(供解锁参考)
+    local dm; dm=$(_swarm_done_list "$name" | paste -sd, - 2>/dev/null || true)
+    [[ -n "$dm" ]] && echo -e "  ${dim}✔ 已标记完成: ${dm}${reset}"
     return 0
 }
 
@@ -1223,10 +1253,19 @@ _swarm_adopt() {
     echo -e "   ${dim}若指挥未自动开始，附加后手动发:  ${invoke}${reset}"
 }
 
-# ttmux swarm done <群>  — 标记完成(不杀会话)
+# ttmux swarm done <群> [成员]
+#   无成员 -> 标记整群完成(不杀会话)。
+#   带成员 -> 标记该成员完成(指挥判定后打标)，并级联解锁等它的下游 pending 成员。
 _swarm_done() {
-    local name="$1"
+    local name="$1" member="${2:-}"
     if ! _swarm_exists "$name"; then msg_err "蜂群不存在: ${name}"; return 1; fi
+    if [[ -n "$member" ]]; then
+        _swarm_member_mark_done "$name" "$member"
+        msg_ok "成员 ${bold}${name}-${member}${reset} 已标记完成 ${dim}(会话不动)${reset}"
+        # 标记后顺手解锁下游(依赖它的挂起成员)
+        _swarm_activate "$name" || true
+        return 0
+    fi
     _swarm_meta_set "$name" status "done"
     msg_ok "蜂群 ${bold}${name}${reset} 已标记完成"
 }
@@ -1368,6 +1407,32 @@ _interactive_swarm_send() {
     fi
 }
 
+# 选一个成员标记完成 -> 解锁下游
+_interactive_swarm_mark_done() {
+    local swarm="$1"
+    local members=()
+    while IFS= read -r sess; do
+        [[ -n "$sess" ]] || continue
+        members+=("$(_swarm_member_name "$swarm" "$sess")")
+    done < <(_group_sessions "$swarm")
+    if [[ ${#members[@]} -eq 0 ]]; then msg_info "该蜂群还没有成员"; return; fi
+    echo ""
+    echo -e "  ${bold}成员:${reset}"
+    local i=1
+    for m in "${members[@]}"; do
+        local mk=""; _swarm_member_marked_done "$swarm" "$m" && mk=" ${dim}✔已标记${reset}"
+        echo -e "    ${cyan}${i}${reset}) ${m}${mk}"
+        ((i++)) || true
+    done
+    echo ""
+    read -r -p "  标记哪个成员完成(编号): " choice </dev/tty
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#members[@]} )); then
+        _swarm_done "$swarm" "${members[$((choice-1))]}"
+    else
+        msg_err "无效选择"
+    fi
+}
+
 # 第二层主循环：蜂群详情 / 成员管理
 _interactive_swarm_detail() {
     local swarm="$1"
@@ -1377,15 +1442,16 @@ _interactive_swarm_detail() {
         echo ""
         echo -e "  ${bold}蜂群 ${swarm} ─ 成员管理${reset}"
         echo -e "    ${cyan}a${reset}) 加成员            ${cyan}m${reset}) 追加指令"
-        echo -e "    ${cyan}u${reset}) 解锁挂起成员      ${cyan}c${reset}) 等待并收集"
-        echo -e "    ${cyan}d${reset}) cc 接管           ${cyan}k${reset}) 清理整群"
-        echo -e "    ${cyan}b${reset}) 返回上层"
+        echo -e "    ${cyan}f${reset}) 标记成员完成      ${cyan}u${reset}) 解锁挂起成员"
+        echo -e "    ${cyan}c${reset}) 等待并收集        ${cyan}d${reset}) cc 接管"
+        echo -e "    ${cyan}k${reset}) 清理整群          ${cyan}b${reset}) 返回上层"
         echo ""
         read -r -p "  选择: " act </dev/tty
         echo ""
         case "$act" in
             a) _interactive_swarm_add_member "$swarm" || true; _interactive_pause ;;
             m) _interactive_swarm_send "$swarm" || true; _interactive_pause ;;
+            f) _interactive_swarm_mark_done "$swarm" || true; _interactive_pause ;;
             u) _swarm_activate "$swarm" || true; _interactive_pause ;;
             c) _do_wait_group "$swarm" 300 || true; echo ""; _swarm_collect "$swarm" text || true; _interactive_pause ;;
             k)
@@ -1469,7 +1535,7 @@ _ttmux_completions() {
         swarm)
             COMPREPLY=($(compgen -W "new add ls status activate collect adopt done archive rm" -- "$cur"))
             return ;;
-        adopt|activate)
+        adopt|activate|done|archive)
             local swarms
             swarms=$(ls -d ~/.local/share/ttmux/swarms/*/ 2>/dev/null | xargs -I{} basename {})
             COMPREPLY=($(compgen -W "$swarms" -- "$cur"))
@@ -1541,10 +1607,11 @@ show_help() {
                 ${dim}[--dir/--perm/--model] [--depends-on a,b] <命令或任务>${reset}
     ${green}swarm ls${reset}                                列出蜂群 (目标/状态/指挥)
     ${green}swarm status${reset} ${dim}<群>${reset}                    成员状态 + 依赖 + 挂起
-    ${green}swarm activate${reset} ${dim}<群> [成员]${reset}            解锁依赖已满足的挂起成员
+    ${green}swarm activate${reset} ${dim}<群> [成员] [--force]${reset}   解锁挂起成员 (--force 无视依赖)
+    ${green}swarm done${reset}   ${dim}<群> [成员]${reset}             带成员=标该成员完成并解锁下游, 无成员=整群完成
     ${green}swarm collect${reset} ${dim}<群> [--json]${reset}          收集成员输出
     ${green}swarm adopt${reset}  ${dim}<群> [--by <cc会话>]${reset}     cc 接管 (拉起指挥会话)
-    ${green}swarm done${reset}|${green}archive${reset}|${green}rm${reset} ${dim}<群>${reset}        完成 / 归档 / 删除
+    ${green}swarm archive${reset}|${green}rm${reset} ${dim}<群>${reset}             归档 / 删除
 
   ${bold}窗口 / 窗格${reset}
     ${green}nw${reset}    ${dim}[名称]${reset}                新建窗口
@@ -2201,7 +2268,7 @@ case "$cmd" in
                 ;;
             activate)
                 if [[ $# -lt 1 ]]; then
-                    msg_err "用法: ttmux swarm activate <群> [成员]"
+                    msg_err "用法: ttmux swarm activate <群> [成员] [--force]"
                     exit 1
                 fi
                 _swarm_activate "$@"
@@ -2214,8 +2281,8 @@ case "$cmd" in
                 _swarm_adopt "$@"
                 ;;
             done)
-                [[ $# -ge 1 ]] || { msg_err "用法: ttmux swarm done <群>"; exit 1; }
-                _swarm_done "$1"
+                [[ $# -ge 1 ]] || { msg_err "用法: ttmux swarm done <群> [成员]"; exit 1; }
+                _swarm_done "$1" "${2:-}"
                 ;;
             archive)
                 [[ $# -ge 1 ]] || { msg_err "用法: ttmux swarm archive <群>"; exit 1; }

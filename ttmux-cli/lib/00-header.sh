@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-TTMUX_VERSION="0.4.0"
+TTMUX_VERSION="0.4.1"
 TMUX_BIN="$(command -v tmux)"
 TTMUX_DATA="${TTMUX_DATA:-${HOME}/.local/share/ttmux}"
 TTMUX_LOGS="${TTMUX_DATA}/logs"

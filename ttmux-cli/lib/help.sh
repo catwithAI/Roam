@@ -38,10 +38,11 @@ show_help() {
                 ${dim}[--dir/--perm/--model] [--depends-on a,b] <命令或任务>${reset}
     ${green}swarm ls${reset}                                列出蜂群 (目标/状态/指挥)
     ${green}swarm status${reset} ${dim}<群>${reset}                    成员状态 + 依赖 + 挂起
-    ${green}swarm activate${reset} ${dim}<群> [成员]${reset}            解锁依赖已满足的挂起成员
+    ${green}swarm activate${reset} ${dim}<群> [成员] [--force]${reset}   解锁挂起成员 (--force 无视依赖)
+    ${green}swarm done${reset}   ${dim}<群> [成员]${reset}             带成员=标该成员完成并解锁下游, 无成员=整群完成
     ${green}swarm collect${reset} ${dim}<群> [--json]${reset}          收集成员输出
     ${green}swarm adopt${reset}  ${dim}<群> [--by <cc会话>]${reset}     cc 接管 (拉起指挥会话)
-    ${green}swarm done${reset}|${green}archive${reset}|${green}rm${reset} ${dim}<群>${reset}        完成 / 归档 / 删除
+    ${green}swarm archive${reset}|${green}rm${reset} ${dim}<群>${reset}             归档 / 删除
 
   ${bold}窗口 / 窗格${reset}
     ${green}nw${reset}    ${dim}[名称]${reset}                新建窗口

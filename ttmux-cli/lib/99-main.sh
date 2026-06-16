@@ -280,7 +280,7 @@ case "$cmd" in
                 ;;
             activate)
                 if [[ $# -lt 1 ]]; then
-                    msg_err "用法: ttmux swarm activate <群> [成员]"
+                    msg_err "用法: ttmux swarm activate <群> [成员] [--force]"
                     exit 1
                 fi
                 _swarm_activate "$@"
@@ -293,8 +293,8 @@ case "$cmd" in
                 _swarm_adopt "$@"
                 ;;
             done)
-                [[ $# -ge 1 ]] || { msg_err "用法: ttmux swarm done <群>"; exit 1; }
-                _swarm_done "$1"
+                [[ $# -ge 1 ]] || { msg_err "用法: ttmux swarm done <群> [成员]"; exit 1; }
+                _swarm_done "$1" "${2:-}"
                 ;;
             archive)
                 [[ $# -ge 1 ]] || { msg_err "用法: ttmux swarm archive <群>"; exit 1; }
