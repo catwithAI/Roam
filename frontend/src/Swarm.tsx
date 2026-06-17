@@ -376,7 +376,8 @@ function buildLayout(detail: Detail | null, swarm: string) {
   }))
   const pendings = detail.pending.map((p) => ({ name: p.name, role: 'pending' as const, deps: p.deps, session: `${swarm}-${p.name}`, kind: 'pending' }))
   const all = [...members, ...pendings]
-  if (all.length === 0) return { nodes: [], edges: [], w: 400, h: 280 }
+  // 注意：只有 master、还没 worker 时 all 为空，但仍要把 master 顶点画出来，不能空返回
+  if (all.length === 0 && !masterMember) return { nodes: [], edges: [], w: 400, h: 280 }
   const byName: Record<string, any> = {}; all.forEach((n) => (byName[n.name] = n))
   const memo: Record<string, number> = {}
   const depth = (name: string, seen = new Set<string>()): number => {
