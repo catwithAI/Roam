@@ -2,6 +2,20 @@
 # ── spawn: 批量创建任务 ──
 # ══════════════════════════════════════════
 
+# 交互式 claude/codex 首次进新目录会弹两个对话框(信任此文件夹 / Bypass 权限警告)，
+# 否则成员卡住不干活。这里后台轮询画面文字、逐个点掉。$1 会话名 $2 tmux 二进制。
+# 由 _spawn_one 用 setsid 脱离调用，使其在 ttmux 命令返回后仍存活。
+_spawn_autoconfirm() {
+    local sess="$1" tb="$2" t=0 b=0 scr i
+    for i in $(seq 1 30); do
+        sleep 1
+        scr="$("$tb" capture-pane -t "$sess" -p 2>/dev/null)" || continue
+        if [[ $t == 0 && "$scr" == *"trust this folder"* ]]; then "$tb" send-keys -t "$sess" Enter; t=1; continue; fi
+        if [[ $b == 0 && "$scr" == *"Bypass Permissions mode"* ]]; then "$tb" send-keys -t "$sess" Down Enter; b=1; fi
+        [[ $t == 1 && $b == 1 ]] && break
+    done
+}
+
 # 创建单个任务 session（cmd 与 agent 的统一底层）
 # $1 group  $2 name  $3 type(cmd|agent)  $4 payload(命令或任务)  $5 workdir
 # 成功返回 0，已存在跳过返回 1
@@ -28,6 +42,10 @@ _spawn_one() {
         run_cmd="$payload"
     fi
     "$TMUX_BIN" send-keys -t "$sess_name" "$run_cmd" C-m
+    # 交互式成员：后台自动确认 claude 首启对话框（setsid 脱离，本命令返回后仍存活）
+    if [[ -n "${AGENT_INTERACTIVE:-}" && "$type" == "agent" ]]; then
+        setsid bash -c "$(declare -f _spawn_autoconfirm); _spawn_autoconfirm $(printf %q "$sess_name") $(printf %q "$TMUX_BIN")" </dev/null >/dev/null 2>&1 &
+    fi
     _group_add_session "$group" "$sess_name"
     return 0
 }

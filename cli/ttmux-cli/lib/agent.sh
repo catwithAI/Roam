@@ -8,6 +8,7 @@ _agent_defaults() {
     AGENT_CLAUDE_BIN="${AGENT_CLAUDE_BIN:-$(command -v claude)}"
     AGENT_CODEX_BIN="${AGENT_CODEX_BIN:-$(command -v codex)}"
     AGENT_KIND="${AGENT_KIND:-claude}"   # 引擎: claude | codex
+    AGENT_INTERACTIVE="${AGENT_INTERACTIVE:-}"  # 非空=交互式常驻(蜂群成员用，可进入/不退出)
     AGENT_PERMISSION="${AGENT_PERMISSION:-dangerously-skip-permissions}"
     AGENT_MODEL="${AGENT_MODEL:-}"
     AGENT_WORKDIR="${AGENT_WORKDIR:-$(pwd)}"
@@ -18,6 +19,15 @@ _agent_defaults() {
 _agent_codex_cmd() {
     local task="$1"
     _agent_defaults
+    # 交互式常驻：codex(无 exec 子命令)，任务作为首条消息实参注入，可从前端进入。
+    if [[ -n "$AGENT_INTERACTIVE" ]]; then
+        local esc; printf -v esc '%q' "$task"
+        local icmd="cd '${AGENT_WORKDIR}' && ${AGENT_CODEX_BIN:-codex}"
+        [[ -n "$AGENT_MODEL" ]] && icmd+=" -m ${AGENT_MODEL}"
+        icmd+=" ${esc}"
+        echo "$icmd"
+        return
+    fi
     local cmd="cd '${AGENT_WORKDIR}' && ${AGENT_CODEX_BIN:-codex} exec --skip-git-repo-check"
     [[ -n "$AGENT_MODEL" ]] && cmd+=" -m ${AGENT_MODEL}"
     # 默认放开沙箱/审批（与 claude 的 dangerously-skip-permissions 对齐）
@@ -41,6 +51,21 @@ _agent_cmd() {
 _agent_claude_cmd() {
     local task="$1"
     _agent_defaults
+    # 交互式：claude 常驻(不退出)，可从前端终端进入；任务作为首条消息(prompt 实参)注入。
+    # 蜂群成员(AGENT_INTERACTIVE=1)走这条：完成靠指挥 `swarm done` 标记，而非进程退出。
+    if [[ -n "$AGENT_INTERACTIVE" ]]; then
+        local esc; printf -v esc '%q' "$task"
+        local icmd="cd '${AGENT_WORKDIR}' && ${AGENT_CLAUDE_BIN}"
+        [[ -n "$AGENT_MODEL" ]] && icmd+=" --model ${AGENT_MODEL}"
+        if [[ "$AGENT_PERMISSION" == "dangerously-skip-permissions" ]]; then
+            icmd+=" --dangerously-skip-permissions"
+        else
+            icmd+=" --permission-mode ${AGENT_PERMISSION}"
+        fi
+        icmd+=" ${esc}"
+        echo "$icmd"
+        return
+    fi
     local cmd="cd '${AGENT_WORKDIR}' && ${AGENT_CLAUDE_BIN} -p"
     [[ -n "$AGENT_MODEL" ]] && cmd+=" --model ${AGENT_MODEL}"
     if [[ "$AGENT_PERMISSION" == "dangerously-skip-permissions" ]]; then

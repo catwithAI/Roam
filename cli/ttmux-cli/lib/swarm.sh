@@ -142,6 +142,7 @@ _swarm_spawn_pending() {
         _agent_defaults
         AGENT_WORKDIR="$workdir"
         AGENT_KIND="${kind:-claude}"
+        AGENT_INTERACTIVE=1
         [[ -n "$model" ]] && AGENT_MODEL="$model"
         [[ -n "$perm" ]]  && AGENT_PERMISSION="$perm"
     fi
@@ -292,9 +293,11 @@ _swarm_add() {
     fi
 
     # agent 成员: 设置 AGENT_* 供 _agent_cmd 使用（含引擎 kind）
+    # 蜂群成员走交互式常驻 claude/codex（可从前端进入；完成靠 swarm done，不靠退出）
     if [[ "$type" == "agent" ]]; then
         AGENT_WORKDIR="$workdir"
         AGENT_KIND="$kind"
+        AGENT_INTERACTIVE=1
         [[ -n "$model" ]] && AGENT_MODEL="$model"
         [[ -n "$perm" ]]  && AGENT_PERMISSION="$perm"
     fi
@@ -395,9 +398,11 @@ _swarm_status_json() {
     local first=1
     if [[ -n "$db" ]]; then
         local rows mname mtype mtask mdeps mdone mkind mrole
-        rows=$(sqlite3 -separator $'\x1f' "$db" \
+        # task 可能含多行(渲染后的提示词)：用 \x1e 作记录分隔、read -d 按它读，
+        # 否则 task 里的换行会把一行记录拆成多行、字段错位、JSON 崩。
+        rows=$(sqlite3 -separator $'\x1f' -newline $'\x1e' "$db" \
             "SELECT name,IFNULL(type,'agent'),IFNULL(task,''),IFNULL(deps,''),IFNULL(done,0),IFNULL(kind,'claude'),IFNULL(role,'worker') FROM members WHERE IFNULL(pending,0)=0 ORDER BY name;")
-        while IFS=$'\x1f' read -r mname mtype mtask mdeps mdone mkind mrole; do
+        while IFS=$'\x1f' read -r -d $'\x1e' mname mtype mtask mdeps mdone mkind mrole; do
             [[ -n "$mname" ]] || continue
             local sess="${name}-${mname}" lst="exited"
             if _session_exists "$sess"; then

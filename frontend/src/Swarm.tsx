@@ -37,8 +37,10 @@ function statusTag(status: string) {
   return <Tag style={{ color: c, borderColor: c + '66', background: c + '14', margin: 0 }}>{t}</Tag>
 }
 
-export default function Swarm({ openTerm }: { openTerm: (n: string) => void }) {
-  const [sel, setSel] = useState<string | null>(null)
+export default function Swarm({ openTerm, initialSwarm, onNav }: { openTerm: (n: string) => void; initialSwarm?: string; onNav?: (name: string | null) => void }) {
+  // 选中态以 URL hash 为唯一来源（深链 #/swarm/<名> 可直达/分享/后退）
+  const sel = initialSwarm || null
+  const nav = onNav || (() => {})
   const [list, setList] = useState<SwarmRow[]>([])
   const loadList = () => api('GET', '/swarms').then((r) => setList(Array.isArray(r) ? r : [])).catch(() => {})
   useEffect(() => {
@@ -46,8 +48,8 @@ export default function Swarm({ openTerm }: { openTerm: (n: string) => void }) {
     loadList(); const t = setInterval(loadList, 3000); return () => clearInterval(t)
   }, [sel])
 
-  if (sel) return <SwarmDetail name={sel} onBack={() => setSel(null)} openTerm={openTerm} onGone={() => { setSel(null); loadList() }} />
-  return <SwarmList list={list} onOpen={setSel} reload={loadList} />
+  if (sel) return <SwarmDetail name={sel} onBack={() => nav(null)} openTerm={openTerm} onGone={() => { nav(null); loadList() }} />
+  return <SwarmList list={list} onOpen={(n) => nav(n)} reload={loadList} />
 }
 
 // ── 列表页 ──
@@ -365,7 +367,9 @@ function buildLayout(detail: Detail | null, swarm: string) {
   const NW = 132, NH = 50, GX = 26, GY = 64, TOP = 12, MASTER_H = 46
   if (!detail) return { nodes: [], edges: [], w: 400, h: 280 }
   type N = { name: string; role: 'master' | 'member' | 'pending'; kind: string; deps: string; session: string; x: number; y: number; w: number; h: number; mrole?: string; mkind?: string }
-  const members = detail.members.map((m) => ({
+  // master 顶点优先用 role=master 的成员（它从分层行里排除，只在顶部画一次）
+  const masterMember = detail.members.find((m) => m.role === 'master')
+  const members = detail.members.filter((m) => m !== masterMember).map((m) => ({
     name: m.name, role: 'member' as const, deps: m.deps, session: m.session,
     kind: m.done ? 'done' : m.status === 'running' ? 'running' : m.status === 'done' ? 'done' : 'exited',
     mrole: m.role, mkind: m.kind, // 成员级 角色(master/worker) 与 引擎(claude/codex)
@@ -389,9 +393,14 @@ function buildLayout(detail: Detail | null, swarm: string) {
   const maxRow = Math.max(1, ...layerKeys.map((k) => layers[k].length))
   const w = Math.max(NW + 40, maxRow * NW + (maxRow - 1) * GX + 24)
   const nodes: N[] = []
-  // master 顶部居中
-  const masterName = detail.supervisor || `cc-${swarm}`
-  nodes.push({ name: masterName, role: 'master', kind: 'master', deps: '', session: detail.supervisor || `cc-${swarm}`, x: w / 2 - NW / 2, y: TOP, w: NW, h: MASTER_H })
+  // master 顶部居中：优先 role=master 成员；否则 supervisor(cc 指挥)；都没有则不画幽灵节点
+  const masterName = masterMember ? masterMember.name : detail.supervisor
+  if (masterName) {
+    const mk = masterMember
+      ? (masterMember.done ? 'done' : masterMember.status === 'running' ? 'running' : masterMember.status === 'done' ? 'done' : 'exited')
+      : 'master'
+    nodes.push({ name: masterName, role: 'master', kind: mk, deps: '', session: masterMember ? masterMember.session : detail.supervisor, x: w / 2 - NW / 2, y: TOP, w: NW, h: MASTER_H, mkind: masterMember?.kind })
+  }
   layerKeys.forEach((k, li) => {
     const row = layers[k]
     const rowW = row.length * NW + (row.length - 1) * GX
@@ -401,9 +410,9 @@ function buildLayout(detail: Detail | null, swarm: string) {
   })
   const pos: Record<string, N> = {}; nodes.forEach((n) => (pos[n.name] = n))
   const edges: { d: string; kind: 'cmd' | 'dep' }[] = []
-  const master = pos[masterName]
-  // 指挥边：master → 第 0 层成员
-  ;(layers[0] || []).forEach((n) => {
+  const master = masterName ? pos[masterName] : undefined
+  // 指挥边：master → 第 0 层成员（无 master 节点时不画）
+  if (master) (layers[0] || []).forEach((n) => {
     const t = pos[n.name]
     edges.push({ kind: 'cmd', d: `M${master.x + NW / 2} ${master.y + MASTER_H} C${master.x + NW / 2} ${t.y - 30}, ${t.x + NW / 2} ${t.y - 30}, ${t.x + NW / 2} ${t.y}` })
   })

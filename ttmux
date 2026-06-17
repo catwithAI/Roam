@@ -582,6 +582,20 @@ _status_json() {
 # ── spawn: 批量创建任务 ──
 # ══════════════════════════════════════════
 
+# 交互式 claude/codex 首次进新目录会弹两个对话框(信任此文件夹 / Bypass 权限警告)，
+# 否则成员卡住不干活。这里后台轮询画面文字、逐个点掉。$1 会话名 $2 tmux 二进制。
+# 由 _spawn_one 用 setsid 脱离调用，使其在 ttmux 命令返回后仍存活。
+_spawn_autoconfirm() {
+    local sess="$1" tb="$2" t=0 b=0 scr i
+    for i in $(seq 1 30); do
+        sleep 1
+        scr="$("$tb" capture-pane -t "$sess" -p 2>/dev/null)" || continue
+        if [[ $t == 0 && "$scr" == *"trust this folder"* ]]; then "$tb" send-keys -t "$sess" Enter; t=1; continue; fi
+        if [[ $b == 0 && "$scr" == *"Bypass Permissions mode"* ]]; then "$tb" send-keys -t "$sess" Down Enter; b=1; fi
+        [[ $t == 1 && $b == 1 ]] && break
+    done
+}
+
 # 创建单个任务 session（cmd 与 agent 的统一底层）
 # $1 group  $2 name  $3 type(cmd|agent)  $4 payload(命令或任务)  $5 workdir
 # 成功返回 0，已存在跳过返回 1
@@ -608,6 +622,10 @@ _spawn_one() {
         run_cmd="$payload"
     fi
     "$TMUX_BIN" send-keys -t "$sess_name" "$run_cmd" C-m
+    # 交互式成员：后台自动确认 claude 首启对话框（setsid 脱离，本命令返回后仍存活）
+    if [[ -n "${AGENT_INTERACTIVE:-}" && "$type" == "agent" ]]; then
+        setsid bash -c "$(declare -f _spawn_autoconfirm); _spawn_autoconfirm $(printf %q "$sess_name") $(printf %q "$TMUX_BIN")" </dev/null >/dev/null 2>&1 &
+    fi
     _group_add_session "$group" "$sess_name"
     return 0
 }
@@ -785,6 +803,7 @@ _agent_defaults() {
     AGENT_CLAUDE_BIN="${AGENT_CLAUDE_BIN:-$(command -v claude)}"
     AGENT_CODEX_BIN="${AGENT_CODEX_BIN:-$(command -v codex)}"
     AGENT_KIND="${AGENT_KIND:-claude}"   # 引擎: claude | codex
+    AGENT_INTERACTIVE="${AGENT_INTERACTIVE:-}"  # 非空=交互式常驻(蜂群成员用，可进入/不退出)
     AGENT_PERMISSION="${AGENT_PERMISSION:-dangerously-skip-permissions}"
     AGENT_MODEL="${AGENT_MODEL:-}"
     AGENT_WORKDIR="${AGENT_WORKDIR:-$(pwd)}"
@@ -795,6 +814,15 @@ _agent_defaults() {
 _agent_codex_cmd() {
     local task="$1"
     _agent_defaults
+    # 交互式常驻：codex(无 exec 子命令)，任务作为首条消息实参注入，可从前端进入。
+    if [[ -n "$AGENT_INTERACTIVE" ]]; then
+        local esc; printf -v esc '%q' "$task"
+        local icmd="cd '${AGENT_WORKDIR}' && ${AGENT_CODEX_BIN:-codex}"
+        [[ -n "$AGENT_MODEL" ]] && icmd+=" -m ${AGENT_MODEL}"
+        icmd+=" ${esc}"
+        echo "$icmd"
+        return
+    fi
     local cmd="cd '${AGENT_WORKDIR}' && ${AGENT_CODEX_BIN:-codex} exec --skip-git-repo-check"
     [[ -n "$AGENT_MODEL" ]] && cmd+=" -m ${AGENT_MODEL}"
     # 默认放开沙箱/审批（与 claude 的 dangerously-skip-permissions 对齐）
@@ -818,6 +846,21 @@ _agent_cmd() {
 _agent_claude_cmd() {
     local task="$1"
     _agent_defaults
+    # 交互式：claude 常驻(不退出)，可从前端终端进入；任务作为首条消息(prompt 实参)注入。
+    # 蜂群成员(AGENT_INTERACTIVE=1)走这条：完成靠指挥 `swarm done` 标记，而非进程退出。
+    if [[ -n "$AGENT_INTERACTIVE" ]]; then
+        local esc; printf -v esc '%q' "$task"
+        local icmd="cd '${AGENT_WORKDIR}' && ${AGENT_CLAUDE_BIN}"
+        [[ -n "$AGENT_MODEL" ]] && icmd+=" --model ${AGENT_MODEL}"
+        if [[ "$AGENT_PERMISSION" == "dangerously-skip-permissions" ]]; then
+            icmd+=" --dangerously-skip-permissions"
+        else
+            icmd+=" --permission-mode ${AGENT_PERMISSION}"
+        fi
+        icmd+=" ${esc}"
+        echo "$icmd"
+        return
+    fi
     local cmd="cd '${AGENT_WORKDIR}' && ${AGENT_CLAUDE_BIN} -p"
     [[ -n "$AGENT_MODEL" ]] && cmd+=" --model ${AGENT_MODEL}"
     if [[ "$AGENT_PERMISSION" == "dangerously-skip-permissions" ]]; then
@@ -1106,6 +1149,7 @@ _swarm_spawn_pending() {
         _agent_defaults
         AGENT_WORKDIR="$workdir"
         AGENT_KIND="${kind:-claude}"
+        AGENT_INTERACTIVE=1
         [[ -n "$model" ]] && AGENT_MODEL="$model"
         [[ -n "$perm" ]]  && AGENT_PERMISSION="$perm"
     fi
@@ -1256,9 +1300,11 @@ _swarm_add() {
     fi
 
     # agent 成员: 设置 AGENT_* 供 _agent_cmd 使用（含引擎 kind）
+    # 蜂群成员走交互式常驻 claude/codex（可从前端进入；完成靠 swarm done，不靠退出）
     if [[ "$type" == "agent" ]]; then
         AGENT_WORKDIR="$workdir"
         AGENT_KIND="$kind"
+        AGENT_INTERACTIVE=1
         [[ -n "$model" ]] && AGENT_MODEL="$model"
         [[ -n "$perm" ]]  && AGENT_PERMISSION="$perm"
     fi
@@ -1359,9 +1405,11 @@ _swarm_status_json() {
     local first=1
     if [[ -n "$db" ]]; then
         local rows mname mtype mtask mdeps mdone mkind mrole
-        rows=$(sqlite3 -separator $'\x1f' "$db" \
+        # task 可能含多行(渲染后的提示词)：用 \x1e 作记录分隔、read -d 按它读，
+        # 否则 task 里的换行会把一行记录拆成多行、字段错位、JSON 崩。
+        rows=$(sqlite3 -separator $'\x1f' -newline $'\x1e' "$db" \
             "SELECT name,IFNULL(type,'agent'),IFNULL(task,''),IFNULL(deps,''),IFNULL(done,0),IFNULL(kind,'claude'),IFNULL(role,'worker') FROM members WHERE IFNULL(pending,0)=0 ORDER BY name;")
-        while IFS=$'\x1f' read -r mname mtype mtask mdeps mdone mkind mrole; do
+        while IFS=$'\x1f' read -r -d $'\x1e' mname mtype mtask mdeps mdone mkind mrole; do
             [[ -n "$mname" ]] || continue
             local sess="${name}-${mname}" lst="exited"
             if _session_exists "$sess"; then

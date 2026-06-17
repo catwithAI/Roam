@@ -94,7 +94,9 @@ function TypeTag({ type }: { type?: string }) {
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [kanna, setKanna] = useState('')
-  const [tab, setTab] = useState(() => location.hash.replace(/^#\/?/, '') || 'sessions')
+  const [route, setRoute] = useState(() => location.hash.replace(/^#\/?/, '') || 'sessions')
+  const tab = route.split('/')[0]                                  // 基础页（swarm/leave → swarm）
+  const swarmSub = tab === 'swarm' && route.includes('/') ? decodeURIComponent(route.slice(route.indexOf('/') + 1)) : '' // 深链选中的蜂群
   const go = (k: string) => { location.hash = '#/' + k } // hash 路由：/#/xxx
   const [collapsed, setCollapsed] = useState(false)
   const screens = useBreakpoint()
@@ -134,7 +136,7 @@ export default function App() {
 
   // hash 路由：URL #/xxx 与当前页同步（支持前进/后退、刷新保持、收藏分享）
   useEffect(() => {
-    const apply = () => setTab(location.hash.replace(/^#\/?/, '') || 'sessions')
+    const apply = () => setRoute(location.hash.replace(/^#\/?/, '') || 'sessions')
     apply()
     window.addEventListener('hashchange', apply)
     return () => window.removeEventListener('hashchange', apply)
@@ -208,7 +210,7 @@ export default function App() {
 
   const pages: any = {
     overview: <Overview go={go} openTerm={openTerm} kanna={kanna} />,
-    swarm: <Swarm openTerm={openTerm} />,
+    swarm: <Swarm openTerm={openTerm} initialSwarm={swarmSub || undefined} onNav={(n) => { location.hash = n ? '#/swarm/' + encodeURIComponent(n) : '#/swarm' }} />,
     sessions: <Sessions openTerm={openTerm} />,
     env: <EnvPage />,
     browser: <BrowserView />,
