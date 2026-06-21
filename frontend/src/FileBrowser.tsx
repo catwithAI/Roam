@@ -137,9 +137,6 @@ const DownloadIcon = () => (
 const TrashIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 15H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
 )
-const EnterIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h12" /><path d="m13 8 4 4-4 4" /><path d="M19 5v14" /></svg>
-)
 const CloseIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
 )
@@ -405,11 +402,6 @@ export default function FileBrowser({ dir, accent = '#58a6ff', onClose, onInsert
                   style={{ width: 24, height: 24, minWidth: 24, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><TrashIcon /></Button>
               </span>
             </Popconfirm>
-            {e.dir && (
-              <span data-file-action>
-                <IconButton title="进入目录" onClick={() => setPath(joinPath(cur, e.name))}><EnterIcon /></IconButton>
-              </span>
-            )}
           </div>
         ))}
         {data && data.entries.length === 0 && <div style={{ color: 'var(--text-dimmer)', fontSize: 12, padding: '6px 10px' }}>空目录</div>}
