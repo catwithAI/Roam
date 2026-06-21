@@ -117,6 +117,7 @@ swarm new <名> [--goal "..."]                  swarm ls
 swarm add <群> <成员> --type task|agent [--dir/--perm/--model] [--depends-on a,b] <命令或任务>
 swarm status <群>                              swarm collect <群> [--json]
 swarm activate <群> [成员] [--force]            swarm done <群> [成员]
+swarm migrate                                  # 迁移旧版 ~/.local/share/ttmux/swarms 元数据
 swarm adopt <群> [--by <cc会话>]                swarm archive|rm <群>
 ```
 

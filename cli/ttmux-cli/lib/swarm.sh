@@ -32,6 +32,98 @@ _swarm_meta_set() {
     sqlite3 "$(_meta_db)" "UPDATE swarms SET ${2}='$(_sqe "$3")' WHERE name='$(_sqe "$1")' OR id='$(_sqe "$1")';"
 }
 
+_read_first_file() {
+    local f="$1"
+    [[ -f "$f" ]] || return 0
+    IFS= read -r line < "$f" || true
+    printf '%s' "${line:-}"
+}
+
+_swarm_migrate_one() {
+    local name="$1" created="${2:-}" goal="${3:-}" status="${4:-}" supervisor="${5:-}"
+    [[ -n "$name" ]] || return 0
+    local id; id=$(_swarm_id "$name")
+    if [[ -z "$id" ]]; then
+        id=$(_id_new)
+        [[ -n "$created" ]] || created="$(date '+%Y-%m-%d %H:%M:%S')"
+        [[ -n "$status" ]] || status="planning"
+        sqlite3 "$(_meta_db)" "INSERT INTO swarms(id,name,goal,status,supervisor,created)
+            VALUES('$(_sqe "$id")','$(_sqe "$name")','$(_sqe "$goal")','$(_sqe "$status")','$(_sqe "$supervisor")','$(_sqe "$created")');"
+        msg_ok "迁移蜂群索引 ${bold}${name}${reset} ${dim}(${id})${reset}"
+    else
+        local set_sql=""
+        if [[ -n "$goal" && -z "$(_swarm_meta_get "$name" goal)" ]]; then set_sql="${set_sql}goal='$(_sqe "$goal")',"; fi
+        if [[ -n "$status" && -z "$(_swarm_meta_get "$name" status)" ]]; then set_sql="${set_sql}status='$(_sqe "$status")',"; fi
+        if [[ -n "$supervisor" && -z "$(_swarm_meta_get "$name" supervisor)" ]]; then set_sql="${set_sql}supervisor='$(_sqe "$supervisor")',"; fi
+        if [[ -n "$created" && -z "$(_swarm_meta_get "$name" created)" ]]; then set_sql="${set_sql}created='$(_sqe "$created")',"; fi
+        if [[ -n "$set_sql" ]]; then
+            set_sql="${set_sql%,}"
+            sqlite3 "$(_meta_db)" "UPDATE swarms SET ${set_sql} WHERE name='$(_sqe "$name")';"
+        fi
+    fi
+    _swarm_db_init "$id"
+}
+
+_swarm_migrate_members() {
+    local name="$1" db gf sess member type task workdir role supervisor
+    db=$(_swarm_db_of "$name") || return 0
+    gf="$(_group_file "$name")"
+    if [[ -f "$gf" ]]; then
+        supervisor=$(_swarm_meta_get "$name" supervisor)
+        while IFS= read -r sess; do
+            [[ -n "$sess" ]] || continue
+            member=$(_swarm_member_name "$name" "$sess")
+            type=$(_task_type "$sess")
+            task=$(_task_desc "$sess")
+            workdir=$(_read_first_file "$(_task_meta_dir "$sess")/workdir.txt")
+            role="worker"
+            [[ -n "$supervisor" && "$sess" == "$supervisor" ]] && role="master"
+            sqlite3 "$db" "INSERT INTO members(name,type,task,workdir,role,pending,done)
+                VALUES('$(_sqe "$member")','$(_sqe "$type")','$(_sqe "$task")','$(_sqe "$workdir")','$(_sqe "$role")',0,0)
+                ON CONFLICT(name) DO UPDATE SET
+                    type=COALESCE(NULLIF(members.type,''), excluded.type),
+                    task=COALESCE(NULLIF(members.task,''), excluded.task),
+                    workdir=COALESCE(NULLIF(members.workdir,''), excluded.workdir);"
+        done < "$gf"
+    elif [[ -n "$db" ]]; then
+        mkdir -p "$TTMUX_GROUPS"
+        while IFS= read -r member; do
+            [[ -n "$member" ]] || continue
+            printf '%s\n' "${name}-${member}" >> "$gf"
+        done < <(sqlite3 "$db" "SELECT name FROM members WHERE IFNULL(pending,0)=0 ORDER BY name;" 2>/dev/null || true)
+    fi
+}
+
+_swarm_migrate() {
+    _need_sqlite || return 1
+    _meta_init
+    mkdir -p "$TTMUX_GROUPS"
+
+    local d name created goal status supervisor
+    shopt -s nullglob
+    for d in "${TTMUX_SWARMS}"/*; do
+        [[ -d "$d" ]] || continue
+        name=$(basename "$d")
+        created=$(_read_first_file "$d/created.txt")
+        goal=$(_read_first_file "$d/goal.txt")
+        status=$(_read_first_file "$d/status.txt")
+        supervisor=$(_read_first_file "$d/supervisor.txt")
+        _swarm_migrate_one "$name" "$created" "$goal" "$status" "$supervisor"
+    done
+
+    local rows id
+    rows=$(sqlite3 -separator $'\x1f' "$(_meta_db)" "SELECT id,name FROM swarms ORDER BY created;" 2>/dev/null || true)
+    while IFS=$'\x1f' read -r id name; do
+        [[ -n "$id" && -n "$name" ]] || continue
+        _swarm_db_init "$id"
+        _swarm_migrate_members "$name"
+        if [[ -z "$(_swarm_meta_get "$name" supervisor)" ]] && _session_exists "cc-${name}"; then
+            _swarm_meta_set "$name" supervisor "cc-${name}"
+        fi
+    done <<< "$rows"
+    msg_ok "蜂群历史数据迁移完成"
+}
+
 # 成员显示名: 去掉 "<swarm>-" 前缀
 _swarm_member_name() {
     local swarm="$1" sess="$2"

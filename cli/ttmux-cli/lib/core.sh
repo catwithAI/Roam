@@ -27,27 +27,66 @@ msg_warn() { echo -e " ${yellow}${icon_warn}${reset} $*"; }
 
 # ── 辅助函数 ──
 _sessions() {
-    "$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        _is_swarm_session "$name" && continue
+        echo "$name"
+    done < <("$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null)
 }
 
 _session_count() {
-    "$TMUX_BIN" list-sessions 2>/dev/null | wc -l
+    _sessions | wc -l
 }
 
 _session_exists() {
     "$TMUX_BIN" has-session -t "$1" 2>/dev/null
 }
 
+_swarm_names() {
+    local db="${TTMUX_HOME}/meta.db"
+    if [[ -f "$db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+        sqlite3 "$db" "SELECT name FROM swarms;" 2>/dev/null || true
+    fi
+    local d
+    shopt -s nullglob
+    for d in "${TTMUX_SWARMS}"/*; do
+        [[ -d "$d" ]] || continue
+        basename "$d"
+    done
+}
+
+_swarm_supervisors() {
+    local db="${TTMUX_HOME}/meta.db"
+    [[ -f "$db" ]] || return 0
+    command -v sqlite3 >/dev/null 2>&1 || return 0
+    sqlite3 "$db" "SELECT supervisor FROM swarms WHERE IFNULL(supervisor,'')<>'';" 2>/dev/null || true
+}
+
+_is_swarm_session() {
+    local sess="${1:-}" swarm gf member supervisor
+    [[ -n "$sess" ]] || return 1
+    while IFS= read -r supervisor; do
+        [[ -n "$supervisor" && "$sess" == "$supervisor" ]] && return 0
+    done < <(_swarm_supervisors)
+    while IFS= read -r swarm; do
+        [[ -n "$swarm" ]] || continue
+        gf="${TTMUX_GROUPS}/${swarm}.group"
+        [[ -f "$gf" ]] || continue
+        while IFS= read -r member; do
+            [[ -n "$member" && "$sess" == "$member" ]] && return 0
+        done < "$gf"
+    done < <(_swarm_names)
+    return 1
+}
+
 _pretty_sessions() {
     local lines
     lines=$("$TMUX_BIN" list-sessions -F '#{session_name}	#{session_windows}	#{session_created}	#{session_attached}' 2>/dev/null) || true
-    if [[ -z "$lines" ]]; then
-        msg_info "没有活跃会话"
-        return
-    fi
     echo ""
     local count=0
     while IFS=$'\t' read -r name windows created attached; do
+        [[ -n "$name" ]] || continue
+        _is_swarm_session "$name" && continue
         local att_str="${dim}[空闲]${reset}"
         [[ "$attached" == "1" ]] && att_str="${green}[已连接]${reset}"
         local time_str
@@ -55,6 +94,10 @@ _pretty_sessions() {
         echo -e "   ${icon_session} ${bold}${name}${reset}  ${dim}${windows} 个窗口  ${time_str}${reset}  ${att_str}"
         ((count++)) || true
     done <<< "$lines"
+    if [[ "$count" -eq 0 ]]; then
+        msg_info "没有活跃会话"
+        return
+    fi
     echo ""
     echo -e "   ${dim}共 ${count} 个会话${reset}"
     echo ""
@@ -108,6 +151,8 @@ _json_sessions() {
     echo "["
     local first=true
     while IFS=$'\t' read -r name windows created attached; do
+        [[ -n "$name" ]] || continue
+        _is_swarm_session "$name" && continue
         [[ "$first" == true ]] || echo ","
         first=false
         printf '  {"name":"%s","windows":%s,"created":"%s","attached":%s}' \
@@ -116,4 +161,3 @@ _json_sessions() {
     echo ""
     echo "]"
 }
-

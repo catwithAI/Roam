@@ -91,8 +91,11 @@ case "$cmd" in
             exit 0
         fi
         if _confirm "确定关闭全部 ${local_count} 个会话?"; then
-            "$TMUX_BIN" kill-server
-            msg_ok "所有会话已关闭"
+            while IFS= read -r sess; do
+                [[ -n "$sess" ]] || continue
+                "$TMUX_BIN" kill-session -t "$sess" 2>/dev/null || true
+            done < <(_sessions)
+            msg_ok "所有普通会话已关闭"
         else
             msg_info "已取消"
         fi
@@ -250,6 +253,9 @@ case "$cmd" in
                     exit 1
                 fi
                 _swarm_new "$@"
+                ;;
+            migrate)
+                _swarm_migrate
                 ;;
             add)
                 if [[ $# -lt 2 ]]; then

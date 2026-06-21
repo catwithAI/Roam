@@ -10,6 +10,15 @@ _group_exists() {
     [[ -f "$(_group_file "$1")" ]]
 }
 
+_is_swarm_group() {
+    local group="${1:-}" swarm
+    [[ -n "$group" ]] || return 1
+    while IFS= read -r swarm; do
+        [[ -n "$swarm" && "$group" == "$swarm" ]] && return 0
+    done < <(_swarm_names)
+    return 1
+}
+
 _group_sessions() {
     local gf
     gf=$(_group_file "$1")
@@ -66,6 +75,7 @@ _group_list() {
     for f in "${TTMUX_GROUPS}"/*.group; do
         local name
         name=$(basename "$f" .group)
+        _is_swarm_group "$name" && continue
         groups+=("$name")
     done
     if [[ ${#groups[@]} -eq 0 ]]; then
@@ -104,6 +114,7 @@ _group_list_json() {
     for f in "${TTMUX_GROUPS}"/*.group; do
         local name total=0 alive=0
         name=$(basename "$f" .group)
+        _is_swarm_group "$name" && continue
         while IFS= read -r sess; do
             [[ -n "$sess" ]] || continue
             ((total++)) || true
@@ -121,4 +132,3 @@ _group_list_json() {
     done
     echo ']'
 }
-

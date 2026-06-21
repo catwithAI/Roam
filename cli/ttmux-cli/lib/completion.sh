@@ -29,7 +29,7 @@ _ttmux_completions() {
             COMPREPLY=($(compgen -W "spawn status send collect kill" -- "$cur"))
             return ;;
         swarm)
-            COMPREPLY=($(compgen -W "new add ls status activate collect adopt done say listen feed watch board task sql archive rm" -- "$cur"))
+            COMPREPLY=($(compgen -W "new add ls status activate collect migrate adopt done say listen feed watch board task sql archive rm" -- "$cur"))
             return ;;
         adopt|activate|done|archive|status|collect|say|listen|feed|watch|sql|add|board)
             local swarms

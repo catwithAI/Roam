@@ -51,27 +51,66 @@ msg_warn() { echo -e " ${yellow}${icon_warn}${reset} $*"; }
 
 # ── 辅助函数 ──
 _sessions() {
-    "$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        _is_swarm_session "$name" && continue
+        echo "$name"
+    done < <("$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null)
 }
 
 _session_count() {
-    "$TMUX_BIN" list-sessions 2>/dev/null | wc -l
+    _sessions | wc -l
 }
 
 _session_exists() {
     "$TMUX_BIN" has-session -t "$1" 2>/dev/null
 }
 
+_swarm_names() {
+    local db="${TTMUX_HOME}/meta.db"
+    if [[ -f "$db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+        sqlite3 "$db" "SELECT name FROM swarms;" 2>/dev/null || true
+    fi
+    local d
+    shopt -s nullglob
+    for d in "${TTMUX_SWARMS}"/*; do
+        [[ -d "$d" ]] || continue
+        basename "$d"
+    done
+}
+
+_swarm_supervisors() {
+    local db="${TTMUX_HOME}/meta.db"
+    [[ -f "$db" ]] || return 0
+    command -v sqlite3 >/dev/null 2>&1 || return 0
+    sqlite3 "$db" "SELECT supervisor FROM swarms WHERE IFNULL(supervisor,'')<>'';" 2>/dev/null || true
+}
+
+_is_swarm_session() {
+    local sess="${1:-}" swarm gf member supervisor
+    [[ -n "$sess" ]] || return 1
+    while IFS= read -r supervisor; do
+        [[ -n "$supervisor" && "$sess" == "$supervisor" ]] && return 0
+    done < <(_swarm_supervisors)
+    while IFS= read -r swarm; do
+        [[ -n "$swarm" ]] || continue
+        gf="${TTMUX_GROUPS}/${swarm}.group"
+        [[ -f "$gf" ]] || continue
+        while IFS= read -r member; do
+            [[ -n "$member" && "$sess" == "$member" ]] && return 0
+        done < "$gf"
+    done < <(_swarm_names)
+    return 1
+}
+
 _pretty_sessions() {
     local lines
     lines=$("$TMUX_BIN" list-sessions -F '#{session_name}	#{session_windows}	#{session_created}	#{session_attached}' 2>/dev/null) || true
-    if [[ -z "$lines" ]]; then
-        msg_info "没有活跃会话"
-        return
-    fi
     echo ""
     local count=0
     while IFS=$'\t' read -r name windows created attached; do
+        [[ -n "$name" ]] || continue
+        _is_swarm_session "$name" && continue
         local att_str="${dim}[空闲]${reset}"
         [[ "$attached" == "1" ]] && att_str="${green}[已连接]${reset}"
         local time_str
@@ -79,6 +118,10 @@ _pretty_sessions() {
         echo -e "   ${icon_session} ${bold}${name}${reset}  ${dim}${windows} 个窗口  ${time_str}${reset}  ${att_str}"
         ((count++)) || true
     done <<< "$lines"
+    if [[ "$count" -eq 0 ]]; then
+        msg_info "没有活跃会话"
+        return
+    fi
     echo ""
     echo -e "   ${dim}共 ${count} 个会话${reset}"
     echo ""
@@ -132,6 +175,8 @@ _json_sessions() {
     echo "["
     local first=true
     while IFS=$'\t' read -r name windows created attached; do
+        [[ -n "$name" ]] || continue
+        _is_swarm_session "$name" && continue
         [[ "$first" == true ]] || echo ","
         first=false
         printf '  {"name":"%s","windows":%s,"created":"%s","attached":%s}' \
@@ -140,7 +185,6 @@ _json_sessions() {
     echo ""
     echo "]"
 }
-
 # ══════════════════════════════════════════
 # ── store: 蜂群 SQLite 存储地基 ──
 # ══════════════════════════════════════════
@@ -367,6 +411,15 @@ _group_exists() {
     [[ -f "$(_group_file "$1")" ]]
 }
 
+_is_swarm_group() {
+    local group="${1:-}" swarm
+    [[ -n "$group" ]] || return 1
+    while IFS= read -r swarm; do
+        [[ -n "$swarm" && "$group" == "$swarm" ]] && return 0
+    done < <(_swarm_names)
+    return 1
+}
+
 _group_sessions() {
     local gf
     gf=$(_group_file "$1")
@@ -423,6 +476,7 @@ _group_list() {
     for f in "${TTMUX_GROUPS}"/*.group; do
         local name
         name=$(basename "$f" .group)
+        _is_swarm_group "$name" && continue
         groups+=("$name")
     done
     if [[ ${#groups[@]} -eq 0 ]]; then
@@ -461,6 +515,7 @@ _group_list_json() {
     for f in "${TTMUX_GROUPS}"/*.group; do
         local name total=0 alive=0
         name=$(basename "$f" .group)
+        _is_swarm_group "$name" && continue
         while IFS= read -r sess; do
             [[ -n "$sess" ]] || continue
             ((total++)) || true
@@ -478,7 +533,6 @@ _group_list_json() {
     done
     echo ']'
 }
-
 _info_json() {
     local sess_count group_count tmux_ver
     sess_count=$(_session_count | tr -d '[:space:]')
@@ -1037,6 +1091,98 @@ _swarm_meta_get() {
 _swarm_meta_set() {
     _meta_init
     sqlite3 "$(_meta_db)" "UPDATE swarms SET ${2}='$(_sqe "$3")' WHERE name='$(_sqe "$1")' OR id='$(_sqe "$1")';"
+}
+
+_read_first_file() {
+    local f="$1"
+    [[ -f "$f" ]] || return 0
+    IFS= read -r line < "$f" || true
+    printf '%s' "${line:-}"
+}
+
+_swarm_migrate_one() {
+    local name="$1" created="${2:-}" goal="${3:-}" status="${4:-}" supervisor="${5:-}"
+    [[ -n "$name" ]] || return 0
+    local id; id=$(_swarm_id "$name")
+    if [[ -z "$id" ]]; then
+        id=$(_id_new)
+        [[ -n "$created" ]] || created="$(date '+%Y-%m-%d %H:%M:%S')"
+        [[ -n "$status" ]] || status="planning"
+        sqlite3 "$(_meta_db)" "INSERT INTO swarms(id,name,goal,status,supervisor,created)
+            VALUES('$(_sqe "$id")','$(_sqe "$name")','$(_sqe "$goal")','$(_sqe "$status")','$(_sqe "$supervisor")','$(_sqe "$created")');"
+        msg_ok "迁移蜂群索引 ${bold}${name}${reset} ${dim}(${id})${reset}"
+    else
+        local set_sql=""
+        if [[ -n "$goal" && -z "$(_swarm_meta_get "$name" goal)" ]]; then set_sql="${set_sql}goal='$(_sqe "$goal")',"; fi
+        if [[ -n "$status" && -z "$(_swarm_meta_get "$name" status)" ]]; then set_sql="${set_sql}status='$(_sqe "$status")',"; fi
+        if [[ -n "$supervisor" && -z "$(_swarm_meta_get "$name" supervisor)" ]]; then set_sql="${set_sql}supervisor='$(_sqe "$supervisor")',"; fi
+        if [[ -n "$created" && -z "$(_swarm_meta_get "$name" created)" ]]; then set_sql="${set_sql}created='$(_sqe "$created")',"; fi
+        if [[ -n "$set_sql" ]]; then
+            set_sql="${set_sql%,}"
+            sqlite3 "$(_meta_db)" "UPDATE swarms SET ${set_sql} WHERE name='$(_sqe "$name")';"
+        fi
+    fi
+    _swarm_db_init "$id"
+}
+
+_swarm_migrate_members() {
+    local name="$1" db gf sess member type task workdir role supervisor
+    db=$(_swarm_db_of "$name") || return 0
+    gf="$(_group_file "$name")"
+    if [[ -f "$gf" ]]; then
+        supervisor=$(_swarm_meta_get "$name" supervisor)
+        while IFS= read -r sess; do
+            [[ -n "$sess" ]] || continue
+            member=$(_swarm_member_name "$name" "$sess")
+            type=$(_task_type "$sess")
+            task=$(_task_desc "$sess")
+            workdir=$(_read_first_file "$(_task_meta_dir "$sess")/workdir.txt")
+            role="worker"
+            [[ -n "$supervisor" && "$sess" == "$supervisor" ]] && role="master"
+            sqlite3 "$db" "INSERT INTO members(name,type,task,workdir,role,pending,done)
+                VALUES('$(_sqe "$member")','$(_sqe "$type")','$(_sqe "$task")','$(_sqe "$workdir")','$(_sqe "$role")',0,0)
+                ON CONFLICT(name) DO UPDATE SET
+                    type=COALESCE(NULLIF(members.type,''), excluded.type),
+                    task=COALESCE(NULLIF(members.task,''), excluded.task),
+                    workdir=COALESCE(NULLIF(members.workdir,''), excluded.workdir);"
+        done < "$gf"
+    elif [[ -n "$db" ]]; then
+        mkdir -p "$TTMUX_GROUPS"
+        while IFS= read -r member; do
+            [[ -n "$member" ]] || continue
+            printf '%s\n' "${name}-${member}" >> "$gf"
+        done < <(sqlite3 "$db" "SELECT name FROM members WHERE IFNULL(pending,0)=0 ORDER BY name;" 2>/dev/null || true)
+    fi
+}
+
+_swarm_migrate() {
+    _need_sqlite || return 1
+    _meta_init
+    mkdir -p "$TTMUX_GROUPS"
+
+    local d name created goal status supervisor
+    shopt -s nullglob
+    for d in "${TTMUX_SWARMS}"/*; do
+        [[ -d "$d" ]] || continue
+        name=$(basename "$d")
+        created=$(_read_first_file "$d/created.txt")
+        goal=$(_read_first_file "$d/goal.txt")
+        status=$(_read_first_file "$d/status.txt")
+        supervisor=$(_read_first_file "$d/supervisor.txt")
+        _swarm_migrate_one "$name" "$created" "$goal" "$status" "$supervisor"
+    done
+
+    local rows id
+    rows=$(sqlite3 -separator $'\x1f' "$(_meta_db)" "SELECT id,name FROM swarms ORDER BY created;" 2>/dev/null || true)
+    while IFS=$'\x1f' read -r id name; do
+        [[ -n "$id" && -n "$name" ]] || continue
+        _swarm_db_init "$id"
+        _swarm_migrate_members "$name"
+        if [[ -z "$(_swarm_meta_get "$name" supervisor)" ]] && _session_exists "cc-${name}"; then
+            _swarm_meta_set "$name" supervisor "cc-${name}"
+        fi
+    done <<< "$rows"
+    msg_ok "蜂群历史数据迁移完成"
 }
 
 # 成员显示名: 去掉 "<swarm>-" 前缀
@@ -2411,7 +2557,7 @@ _ttmux_completions() {
             COMPREPLY=($(compgen -W "spawn status send collect kill" -- "$cur"))
             return ;;
         swarm)
-            COMPREPLY=($(compgen -W "new add ls status activate collect adopt done say listen feed watch board task sql archive rm" -- "$cur"))
+            COMPREPLY=($(compgen -W "new add ls status activate collect migrate adopt done say listen feed watch board task sql archive rm" -- "$cur"))
             return ;;
         adopt|activate|done|archive|status|collect|say|listen|feed|watch|sql|add|board)
             local swarms
@@ -2487,6 +2633,7 @@ show_help() {
     ${green}swarm activate${reset} ${dim}<群> [成员] [--force]${reset}   解锁挂起成员 (--force 无视依赖)
     ${green}swarm done${reset}   ${dim}<群> [成员]${reset}             带成员=标该成员完成并解锁下游, 无成员=整群完成
     ${green}swarm collect${reset} ${dim}<群> [--json]${reset}          收集成员输出
+    ${green}swarm migrate${reset}                          迁移旧版蜂群元数据并补齐成员索引
     ${magenta}广场${reset} ${green}swarm say${reset} ${dim}<群> [--as 成员][--to 目标][--kind 类型][--re id] <消息>${reset}  发言(@提及/自动署名)
          ${green}swarm feed${reset} ${dim}<群> [-n N][--from][--kind][--since id][--json]${reset}  读消息流
          ${green}swarm listen${reset} ${dim}<群> [--as master|成员][--once][--mentions]${reset}  agent 监听增量消息
@@ -2965,8 +3112,11 @@ case "$cmd" in
             exit 0
         fi
         if _confirm "确定关闭全部 ${local_count} 个会话?"; then
-            "$TMUX_BIN" kill-server
-            msg_ok "所有会话已关闭"
+            while IFS= read -r sess; do
+                [[ -n "$sess" ]] || continue
+                "$TMUX_BIN" kill-session -t "$sess" 2>/dev/null || true
+            done < <(_sessions)
+            msg_ok "所有普通会话已关闭"
         else
             msg_info "已取消"
         fi
@@ -3124,6 +3274,9 @@ case "$cmd" in
                     exit 1
                 fi
                 _swarm_new "$@"
+                ;;
+            migrate)
+                _swarm_migrate
                 ;;
             add)
                 if [[ $# -lt 2 ]]; then
