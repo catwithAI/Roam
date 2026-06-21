@@ -309,12 +309,14 @@ chrome goto https://example.com    # 打开网址
 chrome text h1                      # 取文本
 chrome eval "document.title"        # 页面内执行 JS
 chrome screenshot shot.png --full   # 整页截图
+chrome screenshot shot.png --fresh --goto https://example.com --viewport 1280x800
 chrome tabs                         # 列标签页
 chrome help                         # 全部动词与选项
 ```
 
 动词：`goto / click / fill / type / press / text / html / attr / eval / wait / screenshot / pdf / tabs / new / close`；
 通用选项 `--tab <序号>` / `--url <子串>` 选目标标签页、`--timeout <ms>`、`--cdp <地址>`。
+批量截图优先用 `--fresh --goto <url>`；需要复用已登录状态或在 Web「浏览器」标签围观时再用默认共享 Chrome。
 源码与开发见 [`../../cli/chrome-cli/README.md`](../../cli/chrome-cli/README.md)。
 
 ### kanna（Claude Code 精美 UI）

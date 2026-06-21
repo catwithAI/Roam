@@ -1,22 +1,35 @@
 # Roam
 
-> Code on a remote machine as if you never left the desk.
+> Turn your development machine into an always-on AI coding workstation.
 
 [Simplified Chinese](README.zh-CN.md)
 
-Roam is a remote coding workspace for long, messy, high-context software work:
-large refactors, production debugging, test loops, migrations, and multi-agent
-coding sessions that need to keep running after you close your laptop.
+Roam lets you connect back to your development machine from a phone, tablet, or
+laptop, then keep coding, watching logs, running tests, debugging in a browser,
+and supervising Claude Code, Codex, or other AI coding agents from anywhere.
 
-It has two halves:
+It solves a concrete problem: **serious software work should not be broken apart
+by device changes, network drops, or long-running agent tasks.** Your code,
+terminals, dev servers, browser, and agents keep running on the development
+machine. Your device is just the control surface.
 
-- **The server side** runs on your development machine. It keeps terminals,
-  coding agents, logs, files, and a browser alive in one persistent workspace.
-- **The local side** is the `ttmux` CLI. It turns `tmux` into a programmable
-  control plane for sessions, parallel jobs, agent workers, and swarms.
+The value at a glance:
 
-You can start work from SSH, continue from a browser, check progress from a
-phone, and come back later without reconstructing the entire coding context.
+- **Remote development that keeps its context**: start from SSH, continue in the
+  browser, check progress from a phone, and return without rebuilding the scene.
+- **Long tasks that keep running**: tests, builds, migrations, log watchers,
+  debugging sessions, and agents survive disconnects.
+- **Manageable AI agents**: name Claude Code, Codex, or other agent workers,
+  group them, inspect output, and send follow-up instructions.
+- **Swarm orchestration for complex work**: split a larger goal across tasks and
+  agents with dependencies, a shared board, and a message feed.
+
+The `ttmux` CLI controls sessions, jobs, logs, agent workers, and swarms. The Web
+console brings the same workspace to browsers and mobile devices. Underneath,
+Roam keeps using your real development machine: tmux, shell, Chrome, the
+filesystem, and the tools you already have.
+
+![Roam Web console](docs/roam-web-console.png)
 
 ## The Product Story
 
@@ -284,8 +297,13 @@ chrome fill "#q" "roam"
 chrome press "#q" Enter
 chrome text h1
 chrome screenshot shot.png --full
+chrome screenshot shot.png --fresh --goto https://example.com --viewport 1280x800
 chrome tabs
 ```
+
+For batch screenshots, prefer `--fresh --goto <url>` when you do not need the
+shared browser's logged-in state. It launches a temporary clean Chrome, captures
+the page, then exits.
 
 Source: [cli/chrome-cli](cli/chrome-cli).
 

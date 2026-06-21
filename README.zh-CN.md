@@ -2,23 +2,28 @@
 
 [English](README.md) ｜ **简体中文**
 
-> **随时随地，回到你的开发机。**
+> **把你的开发机变成一个随身 AI 编程工作站。**
 
-**Roam** 是一个面向远程代码开发的工作空间。它让你在任何地方、任何时间，
-用手机、平板或电脑连回自己的开发机，继续写代码、看日志、跑测试、调浏览器、
-管理终端和监督 AI Agent。
+**Roam** 让你在任何地方、任何时间，用手机、平板或电脑连回自己的开发机，
+继续写代码、跑测试、看日志、调浏览器，并监督 Claude Code、Codex 等
+AI coding agent 持续工作。
 
-你的代码、终端、浏览器、开发服务和 Agent 都运行在开发机上。设备只是入口：
-出门时用手机看进度，路上用平板补充指令，回到桌面后用电脑继续接手，不需要
-重新 SSH、重新开窗口、重新找上下文。
+它解决的是一个很具体的问题：**复杂开发任务不应该被你的设备、网络和时间切碎。**
+代码、终端、开发服务、浏览器和 Agent 都留在开发机上持续运行；你换设备、断线、
+离开桌面后，回来仍然接着同一个现场继续。
 
-如果开发机上已经装了 [Claude Code](https://claude.ai/code)、Codex 或其他
-coding agent，Roam 可以把它们变成可观察、可追加指令、可并行编排的工作单元。
-你可以让多个 Agent 分别处理 API、前端、测试、文档，也可以用 **swarm** 把它们
-串联成一个带目标、依赖、看板和消息流的协作系统，用来推进更复杂的开发任务。
+**一眼看懂 Roam 的价值：**
 
-命令行工具名为 **`ttmux`**。它把 tmux 变成远程开发和 Agent 编排的控制平面；
-Web 控制台则把这些能力带到浏览器和移动设备上。
+- **远程开发不断线**：手机查看进度，平板补充指令，电脑接手编码，工作现场始终在开发机上。
+- **长任务持续跑**：测试、构建、迁移、日志和调试会话不因合盖、断网、换设备而中断。
+- **AI Agent 可管理**：Claude Code、Codex 等 Agent 可以被命名、分组、追踪输出、随时追加指令。
+- **复杂任务可编排**：用 **swarm** 把多个 Agent/任务串成带目标、依赖、看板和消息流的协作系统。
+
+命令行工具 **`ttmux`** 负责会话、任务、日志和 swarm 编排；Web 控制台负责让这些
+能力进入浏览器和移动设备。底层复用你的真实开发机：tmux、shell、Chrome、文件系统
+和已有开发工具，不要求迁移到新的云 IDE 或封闭运行环境。
+
+![Roam Web 控制台](docs/roam-web-console.png)
 
 ## 系统优势
 
@@ -222,11 +227,13 @@ chrome fill "#q" "hello" && chrome press "#q" Enter
 chrome text h1
 chrome eval "document.title"
 chrome screenshot shot.png --full
+chrome screenshot shot.png --fresh --goto https://example.com --viewport 1280x800
 ```
 
 动词：`goto / click / fill / type / press / text / html / attr / eval / wait /
 screenshot / pdf / tabs / new / close`。选项 `--tab N` / `--url <子串>` 选标签页；
-`--timeout <ms>`、`--cdp <地址>`。完整列表见 `chrome help`，源码见
+`--timeout <ms>`、`--cdp <地址>`。批量截图优先用 `--fresh --goto <url>`，
+它会临时启动干净 Chrome 截完即退，不依赖共享浏览器状态。完整列表见 `chrome help`，源码见
 [`cli/chrome-cli/`](cli/chrome-cli/)。
 
 ## 给 AI Agent 用

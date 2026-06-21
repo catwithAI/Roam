@@ -39,8 +39,12 @@ chrome goto https://example.com   # 打开网址
 chrome text h1                     # 取文本
 chrome eval "document.title"       # 页面内执行 JS
 chrome screenshot shot.png --full  # 整页截图
+chrome screenshot shot.png --fresh --goto https://example.com --viewport 1280x800
 chrome tabs                        # 列标签页
 chrome help                        # 全部动词与选项
 ```
+
+批量截图建议使用 `--fresh --goto <url>`：它会临时启动一个干净 Chrome，截图后关闭；
+需要复用已登录状态或在控制台围观自动化时，继续使用默认共享 Chrome 模式。
 
 环境变量：`TTMUX_CHROME_CDP`（默认 `http://127.0.0.1:9222`）、`TTMUX_CHROME_SCALE`（默认 2）。

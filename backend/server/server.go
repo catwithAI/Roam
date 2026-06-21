@@ -71,7 +71,8 @@ func New(cfg Config) *gin.Engine {
 		g.GET("/files", h.Files)      // 文件侧栏：列目录
 		g.GET("/file", h.File)        // 文件侧栏：读文件
 		g.GET("/file/raw", h.FileRaw) // 文件侧栏：原始字节（图片预览 / ?dl=1 下载）
-		g.POST("/upload", h.Upload)   // 上传文件到指定目录（拖拽到对话框 / 文件侧栏）
+		g.DELETE("/file", h.FileDelete)
+		g.POST("/upload", h.Upload) // 上传文件到指定目录（拖拽到对话框 / 文件侧栏）
 
 		g.GET("/sessions", h.Sessions)
 		g.POST("/sessions", h.NewSession)
@@ -126,8 +127,8 @@ func New(cfg Config) *gin.Engine {
 		g.POST("/browser/tabs/:id/forward", browser.TabForward)   // 前进
 		g.POST("/browser/tabs/:id/reload", browser.TabReload)     // 刷新
 		g.POST("/browser/tabs/:id/activate", browser.TabActivate) // 在 Chrome 里前置
-		g.POST("/browser/tabs/:id/navigate", browser.TabNavigate)         // 导航到 URL
-			g.Any("/browser/cdp/*path", browser.DevToolsProxy) // 反代 Chrome 自带 DevTools(F12) + CDP ws
+		g.POST("/browser/tabs/:id/navigate", browser.TabNavigate) // 导航到 URL
+		g.Any("/browser/cdp/*path", browser.DevToolsProxy)        // 反代 Chrome 自带 DevTools(F12) + CDP ws
 		g.GET("/stream/status", hub.Status)
 		g.GET("/logs/:name", hub.Logs)
 	}

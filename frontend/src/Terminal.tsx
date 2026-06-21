@@ -148,9 +148,13 @@ const Term = forwardRef<TermHandle, {
       sendScroll(e.deltaY < 0 ? 'up' : 'down', n)
       e.preventDefault(); e.stopPropagation()
     }
+    // 屏蔽 Chrome 原生右键菜单：右键交给 tmux（mouse on 时会弹 tmux 自己的菜单），
+    // 否则两套菜单会同时冒出来。
+    const onCtx = (e: MouseEvent) => e.preventDefault()
     el.addEventListener('touchstart', onTS, { passive: true, capture: true })
     el.addEventListener('touchmove', onTM, { passive: false, capture: true })
     el.addEventListener('wheel', onWheel, { passive: false, capture: true })
+    el.addEventListener('contextmenu', onCtx)
 
     connect()
 
@@ -163,6 +167,7 @@ const Term = forwardRef<TermHandle, {
       el.removeEventListener('touchstart', onTS, { capture: true } as any)
       el.removeEventListener('touchmove', onTM, { capture: true } as any)
       el.removeEventListener('wheel', onWheel, { capture: true } as any)
+      el.removeEventListener('contextmenu', onCtx)
       dataDisp.dispose()
       try { wsRef.current?.close() } catch {}
       term.dispose()

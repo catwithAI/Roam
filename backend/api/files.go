@@ -107,6 +107,40 @@ func (a *API) FileRaw(c *gin.Context) {
 	c.File(p)
 }
 
+// FileDelete DELETE /file?path=<file-or-empty-dir> —— 删除文件或空目录。
+func (a *API) FileDelete(c *gin.Context) {
+	p := filepath.Clean(c.Query("path"))
+	if p == "" || !filepath.IsAbs(p) || p == string(filepath.Separator) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_PATH"}})
+		return
+	}
+	info, err := os.Lstat(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "missing": true}})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "FS_ERROR", "message": err.Error()}})
+		return
+	}
+	if info.IsDir() {
+		entries, err := os.ReadDir(p)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "READ_ERROR", "message": err.Error()}})
+			return
+		}
+		if len(entries) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "DIR_NOT_EMPTY", "message": "目录非空，未删除"}})
+			return
+		}
+	}
+	if err := os.Remove(p); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DELETE_ERROR", "message": err.Error()}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "dir": info.IsDir()}})
+}
+
 // uniquePath 目标已存在时在扩展名前加 (1)/(2)… 避免覆盖。
 func uniquePath(p string) string {
 	if _, err := os.Stat(p); os.IsNotExist(err) {

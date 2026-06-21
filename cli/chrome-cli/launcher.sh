@@ -94,6 +94,9 @@ chrome — 浏览器自动化（Playwright over CDP，驱动 ttmux Web 镜像那
 
   通用选项: --tab <序号> | --url <子串>  选目标标签页（默认第一个）
             --timeout <ms>（默认 15000）  --cdp <地址>
+  截图选项: --viewport 1280x800  --wait <ms>  --clip x,y,w,h  --fast
+            --fresh --goto <url>（临时干净 Chrome 截图）  --quality <1-100>（jpg）
+            默认截图失败时自动降级到 CDP 截图；所有路径受 --timeout 约束
   环境变量: TTMUX_CHROME_CDP=http://127.0.0.1:9222  TTMUX_CHROME_SCALE=2
 EOF
 }
@@ -105,10 +108,21 @@ case "$sub" in
     -v|--version)   echo "chrome v${TTMUX_CHROME_VERSION}"; exit 0 ;;
     setup)          _setup; exit $? ;;
 esac
+fresh_screenshot=0
+if [ "$sub" = "screenshot" ] || [ "$sub" = "shot" ]; then
+    for arg in "$@"; do
+        [ "$arg" = "--fresh" ] && fresh_screenshot=1 && break
+    done
+fi
 
 # 首次/缺失才跑完整 setup（装依赖）；齐了就走快路径。
 if [ ! -f "${CHROME_DIR}/driver.mjs" ] || [ ! -d "${CHROME_DIR}/node_modules/playwright-core" ]; then
     _setup || exit 1
+else
+    # 根 chrome 是单文件分发；每次执行刷新内嵌 driver，确保升级后的 CLI 立即生效。
+    _write_driver
 fi
-_ensure_browser || exit 1
+if [ "$fresh_screenshot" -eq 0 ]; then
+    _ensure_browser || exit 1
+fi
 exec node "${CHROME_DIR}/driver.mjs" "$@"

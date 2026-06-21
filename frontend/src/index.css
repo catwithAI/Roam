@@ -148,6 +148,10 @@ body {
 .cc-dl { opacity: 0; transition: opacity .15s ease; }
 .cc-filerow:hover .cc-dl, .cc-dl:focus { opacity: 1; }
 @media (pointer: coarse) { .cc-dl { opacity: .6; } }
+.cc-filerow { border-radius: 6px; margin: 1px 4px; }
+.cc-filerow:hover { background: rgba(88, 166, 255, .08); }
+.cc-filerow .ant-btn { color: var(--text-dim); }
+.cc-filerow .ant-btn:hover { color: var(--text-bright) !important; background: rgba(255, 255, 255, .06) !important; }
 
 /* 代码框复制按钮：默认淡出，hover 代码框时浮现 */
 .cc-copy { opacity: 0; transition: opacity .15s ease; }
