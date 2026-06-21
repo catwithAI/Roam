@@ -3,7 +3,7 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, MouseEvent } from 'react'
 import { CodeBox } from './chat/blocks'
 
 const mono = 'ui-monospace, SFMono-Regular, Menlo, monospace'
@@ -20,7 +20,17 @@ const inlineCode: CSSProperties = {
   padding: '1px 5px', borderRadius: 4,
 }
 
-export default function Markdown({ children, accent = '#58a6ff' }: { children: string; accent?: string }) {
+export default function Markdown({
+  children,
+  accent = '#58a6ff',
+  resolveHref,
+  onLinkClick,
+}: {
+  children: string
+  accent?: string
+  resolveHref?: (href: string, kind: 'link' | 'image') => string
+  onLinkClick?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void
+}) {
   return (
     <div style={{ fontSize: 13.5, lineHeight: 1.55, wordBreak: 'break-word' }}>
       <ReactMarkdown
@@ -36,7 +46,10 @@ export default function Markdown({ children, accent = '#58a6ff' }: { children: s
           h2: ({ children }) => <h2 style={{ fontSize: 16, margin: '8px 0 4px', fontWeight: 700 }}>{children}</h2>,
           h3: ({ children }) => <h3 style={{ fontSize: 14.5, margin: '6px 0 4px', fontWeight: 600 }}>{children}</h3>,
           h4: ({ children }) => <h4 style={{ fontSize: 13.5, margin: '6px 0 4px', fontWeight: 600 }}>{children}</h4>,
-          a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer" style={{ color: accent, textDecoration: 'underline' }}>{children}</a>,
+          a: ({ children, href }) => {
+            const resolved = href ? (resolveHref?.(href, 'link') || href) : undefined
+            return <a href={resolved} target="_blank" rel="noreferrer" onClick={(e) => { if (href) onLinkClick?.(href, e) }} style={{ color: accent, textDecoration: 'underline' }}>{children}</a>
+          },
           blockquote: ({ children }) => <blockquote style={{ margin: '6px 0', padding: '2px 10px', borderLeft: '3px solid var(--border)', color: 'var(--text-dim)' }}>{children}</blockquote>,
           hr: () => <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '8px 0' }} />,
           // pre 透传，由 code 统一加样式（块级 vs 行内）
@@ -54,7 +67,7 @@ export default function Markdown({ children, accent = '#58a6ff' }: { children: s
           table: ({ children }) => <table style={{ borderCollapse: 'collapse', margin: '6px 0', fontSize: 12.5 }}>{children}</table>,
           th: ({ children }) => <th style={{ border: '1px solid var(--border)', padding: '3px 8px', textAlign: 'left', background: 'var(--bg-container)' }}>{children}</th>,
           td: ({ children }) => <td style={{ border: '1px solid var(--border)', padding: '3px 8px' }}>{children}</td>,
-          img: ({ src, alt }) => <img src={src} alt={alt} style={{ maxWidth: '100%', borderRadius: 6 }} />,
+          img: ({ src, alt }) => <img src={src ? (resolveHref?.(src, 'image') || src) : src} alt={alt} style={{ maxWidth: '100%', borderRadius: 6 }} />,
         }}
       >
         {children}

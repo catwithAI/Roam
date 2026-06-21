@@ -1,6 +1,6 @@
 // 文件侧栏 —— 在 Claude / Codex 对话页右侧浏览工作目录、查看文件内容（类似 codex 右侧边栏）。
 // 单层可导航列表：目录在前可进入、↑ 回上级、点文件在弹层里查看正文。
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { Button, Modal, Spin, App as AntApp, Tooltip } from 'antd'
 import { api, upload } from './api'
 import Markdown from './Markdown'
@@ -31,6 +31,34 @@ function fmtSize(n: number): string {
 
 function joinPath(dir: string, name: string): string {
   return (dir === '/' ? '' : dir) + '/' + name
+}
+
+function dirname(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i <= 0 ? '/' : path.slice(0, i)
+}
+
+function normalizePath(path: string): string {
+  const abs = path.startsWith('/')
+  const parts: string[] = []
+  for (const part of path.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') parts.pop()
+    else parts.push(part)
+  }
+  return (abs ? '/' : '') + parts.join('/')
+}
+
+function stripHashQuery(ref: string): string {
+  return ref.split('#')[0].split('?')[0]
+}
+
+function localPathFromRef(baseFile: string, ref: string): string | null {
+  const raw = stripHashQuery(ref.trim())
+  if (!raw || raw.startsWith('#') || raw.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(raw)) return null
+  let clean = raw
+  try { clean = decodeURIComponent(raw) } catch { /* keep raw */ }
+  return normalizePath(clean.startsWith('/') ? clean : joinPath(dirname(baseFile), clean))
 }
 
 function codeLangOf(path: string): string {
@@ -145,7 +173,7 @@ const IconButton = ({ title, children, danger, onClick, disabled, width = 24 }: 
     </Button>
   </Tooltip>
 )
-function Viewer({ path, accent, onClose }: { path: string; accent: string; onClose: () => void }) {
+function Viewer({ path, accent, onClose, onOpenPath }: { path: string; accent: string; onClose: () => void; onOpenPath: (p: string) => void }) {
   const ext = extOf(path)
   const isImg = IMG_EXT.includes(ext)
   const isMd = MD_EXT.includes(ext)
@@ -177,6 +205,18 @@ function Viewer({ path, accent, onClose }: { path: string; accent: string; onClo
   const codePre = (text: string) => (
     <pre style={{ margin: 0, whiteSpace: 'pre', overflow: 'auto', maxHeight: '70vh', background: 'var(--bg-base)', padding: 12, borderRadius: 8, fontFamily: 'ui-monospace, monospace', fontSize: 12.5, lineHeight: 1.5, color: '#c9d1d9' }}>{text}</pre>
   )
+  const resolvePreviewHref = (href: string, kind: 'link' | 'image') => {
+    const local = localPathFromRef(path, href)
+    if (!local) return href
+    if (kind === 'image') return `/api/file/raw?path=${encodeURIComponent(local)}`
+    return `/api/file/raw?path=${encodeURIComponent(local)}`
+  }
+  const openPreviewLink = (href: string, ev: MouseEvent<HTMLAnchorElement>) => {
+    const local = localPathFromRef(path, href)
+    if (!local) return
+    ev.preventDefault()
+    onOpenPath(local)
+  }
   const previewShell = (title: string, body: React.ReactNode) => (
     <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-base)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-dim)', fontSize: 12 }}>
@@ -246,7 +286,7 @@ function Viewer({ path, accent, onClose }: { path: string; accent: string; onClo
               {isSheetText
                 ? csvTable(data.content, ext === 'tsv' ? '\t' : ',')
                 : isMd && !source
-                  ? <div style={{ maxHeight: '70vh', overflow: 'auto' }}><Markdown accent={accent}>{data.content}</Markdown></div>
+                  ? <div style={{ maxHeight: '70vh', overflow: 'auto' }}><Markdown accent={accent} resolveHref={resolvePreviewHref} onLinkClick={openPreviewLink}>{data.content}</Markdown></div>
                   : ext === 'json'
                     ? previewShell('JSON 结构预览', <div style={{ maxHeight: '70vh', overflow: 'auto', padding: 12 }}><Markdown accent={accent}>{fence('json', formatJSON(data.content))}</Markdown></div>)
                     : codeLang
@@ -408,7 +448,19 @@ export default function FileBrowser({ dir, accent = '#58a6ff', onClose, onInsert
         ))}
         {data && data.entries.length === 0 && <div style={{ color: 'var(--text-dimmer)', fontSize: 12, padding: '6px 10px' }}>空目录</div>}
       </div>
-      {view && <Viewer path={view} accent={accent} onClose={() => setView(null)} />}
+      {view && <Viewer path={view} accent={accent} onClose={() => setView(null)} onOpenPath={async (target) => {
+        try {
+          const res = await api('GET', `/file/stat?path=${encodeURIComponent(target)}`)
+          if (res.data?.dir) {
+            setPath(target)
+            setView(null)
+          } else {
+            setView(target)
+          }
+        } catch (e: any) {
+          message.error('无法打开引用文件：' + e.message)
+        }
+      }} />}
     </div>
   )
 }

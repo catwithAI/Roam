@@ -107,6 +107,25 @@ func (a *API) FileRaw(c *gin.Context) {
 	c.File(p)
 }
 
+// FileStat GET /file/stat?path=<file-or-dir> —— 判断路径是否存在以及是否目录。
+func (a *API) FileStat(c *gin.Context) {
+	p := filepath.Clean(c.Query("path"))
+	if p == "" || !filepath.IsAbs(p) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_PATH"}})
+		return
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": "路径不存在"}})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "FS_ERROR", "message": err.Error()}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "dir": info.IsDir(), "size": info.Size()}})
+}
+
 // FileDelete DELETE /file?path=<file-or-empty-dir> —— 删除文件或空目录。
 func (a *API) FileDelete(c *gin.Context) {
 	p := filepath.Clean(c.Query("path"))
