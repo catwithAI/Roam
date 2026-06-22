@@ -313,7 +313,7 @@ function AddMemberModal({ open, name, members, onClose, onDone }: { open: boolea
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ color: C.fg2, fontSize: 12, whiteSpace: 'nowrap' }}>{t('swarm.engine')}</span>
             <Segmented value={kind} onChange={(v) => setKind(v as string)}
-              options={[{ label: '🤖 Claude', value: 'claude' }, { label: '✦ Codex', value: 'codex' }]} />
+              options={[{ label: '✳ Claude', value: 'claude' }, { label: '✸ Codex', value: 'codex' }]} />
             <span style={{ flex: 1 }} />
             <Tag color={willBeLeader ? 'magenta' : 'default'} bordered={false}>
               {willBeLeader ? `◆ ${t('swarm.masterFirst')}` : t('swarm.member')}
@@ -462,11 +462,14 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
               const running = n.kind === 'running'
               const assigned = cards.filter((c) => c.assignee === n.name)
               const lastPost = posts.filter((p) => p.author === n.name).slice(-1)[0]
+              const labelPad = view === 'office' ? 24 : 0
               return (
                 <g key={n.name} className="swarm-topology-node" style={{ cursor: 'grab', opacity: dim ? 0.35 : 1 }}
                   onPointerDown={(e) => startDrag(e, n)} onPointerMove={moveDrag} onPointerUp={(e) => endDrag(e, n.name)} onPointerCancel={() => { drag.current = null }}>
                   {running && <rect className="swarm-topology-pulse" x={n.x - 5} y={n.y - 5} width={n.w + 10} height={n.h + 10} rx={14} fill="none" stroke={col} strokeWidth={1.4} filter="url(#nodeGlow)" />}
-                  <foreignObject x={n.x} y={n.y} width={n.w} height={n.h}>
+                  {/* office 视图名字药丸浮在节点上方(top:-18px)，顶部留出 labelPad 高度并允许溢出，否则会被 foreignObject 裁掉 */}
+                  <foreignObject x={n.x} y={n.y - labelPad} width={n.w} height={n.h + labelPad} style={{ overflow: 'visible' }}>
+                    <div style={{ height: '100%', paddingTop: labelPad, boxSizing: 'border-box' }}>
                     {view === 'office' ? (
                       <div className={`swarm-office-desk ${n.w < 220 ? 'is-compact' : ''} ${running ? 'is-running' : ''} ${n.kind === 'idle' ? 'is-idle' : ''} ${n.kind === 'waiting' ? 'is-waiting' : ''}`} style={{ ['--node-accent' as any]: col }}>
                         <div className="swarm-office-label">
@@ -508,6 +511,7 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
                         {lastPost && <div className="swarm-node-last">{lastPost.text}</div>}
                       </div>
                     )}
+                    </div>
                   </foreignObject>
                 </g>
               )

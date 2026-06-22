@@ -708,7 +708,7 @@ function TerminalPane(props: {
             }}>
             <i style={{ width: 7, height: 7, borderRadius: '50%', background: termNeedsInput[termName] ? '#d29922' : (statusMap[termName] === 'connected' ? '#3fb950' : statusMap[termName] === 'connecting' ? '#d29922' : '#f85149') }} />
             {termNeedsInput[termName] && <span title={t('prompt.confirmRequired')} style={{ color: '#d29922', fontSize: 12, fontWeight: 600 }}>{t('session.waiting')}</span>}
-            {claudeMap[termName]?.running && <span title={t('session.runningClaude')}>🤖</span>}
+            {claudeMap[termName]?.running && <span title={t('session.runningClaude')} style={{ color: '#58a6ff' }}>✳</span>}
             {codexMap[termName]?.running && <span title={t('session.runningCodex')} style={{ color: '#10a37f' }}>✸</span>}
             {termName}
             <a onClick={(e) => { e.stopPropagation(); closeTerm(termName) }} style={{ color: 'var(--text-dim)' }}>×</a>
@@ -725,7 +725,7 @@ function TerminalPane(props: {
         {active && claudeMap[active]?.running && (
           <Tooltip title={t('chat.switchToClaude')}>
             <Button size="small" type={claudeView[active] ? 'primary' : 'default'}
-              onClick={() => setClaudeView((v) => ({ ...v, [active!]: !v[active!] }))}>🤖 Claude</Button>
+              onClick={() => setClaudeView((v) => ({ ...v, [active!]: !v[active!] }))}>✳ Claude</Button>
           </Tooltip>
         )}
         {active && codexMap[active]?.running && (
@@ -1293,7 +1293,7 @@ function Sessions({ openTerm }: { openTerm: (n: string) => void }) {
                       <span style={{ fontWeight: 600, color: 'var(--text-bright)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.name}>{s.name}</span>
                       {sw && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>{t('nav.swarm')}:{sw.swarm}{sw.role === 'leader' ? `·${t('swarm.master')}` : ''}</Tag>}
                       {waiting && <Tag color="warning" style={{ margin: 0, flex: '0 0 auto' }}>{t('session.waiting')}</Tag>}
-                      {cc[s.name] && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>🤖 Claude</Tag>}
+                      {cc[s.name] && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>✳ Claude</Tag>}
                       {cx[s.name] && <Tag color="green" style={{ margin: 0, flex: '0 0 auto' }}>✸ Codex</Tag>}
                       {!sw && !agent && <Tag style={{ margin: 0, flex: '0 0 auto' }}>{connected ? t('terminal.status.connected') : t('terminal.status.idle')}</Tag>}
                       <span style={{ color: 'var(--text-dim)', fontSize: 12, flex: '0 0 auto', whiteSpace: 'nowrap' }}>{t('session.windows', { count: s.windows })}</span>
