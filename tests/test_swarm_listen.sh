@@ -17,9 +17,18 @@ cat > "${FAKE_BIN}/tmux" <<'FAKE_TMUX'
 #!/usr/bin/env bash
 echo "$*" >> "${FAKE_TMUX_LOG:?}"
 case "${1:-}" in
-  display-message) exit 1 ;;
+  display-message)
+    case "$*" in *pane_dead*) echo 0; exit 0 ;; *) exit 1 ;; esac
+    ;;
+  capture-pane)
+    case "$*" in
+      *listen-case-oldlead*) echo "❯"; exit 0 ;;
+      *listen-case-oldmember*) echo "Press enter"; exit 0 ;;
+      *) exit 0 ;;
+    esac
+    ;;
   has-session)
-    case "$*" in *"cc-listen-case"*) exit 0 ;; *) exit 1 ;; esac
+    case "$*" in *"cc-listen-case"*|*"listen-case-oldlead"*|*"listen-case-oldmember"*) exit 0 ;; *) exit 1 ;; esac
     ;;
   list-sessions) exit 0 ;;
   send-keys) exit 0 ;;
@@ -89,6 +98,8 @@ sqlite3 "${TTMUX_HOME}/swarms/${swarm_id}/swarm.db" "INSERT INTO members(name,ty
 status_json=$("$TTMUX" swarm status listen-case --json)
 assert_contains "$status_json" '"role":"leader"' "旧 role=master 迁移为 leader"
 assert_contains "$status_json" '"role":"member"' "旧 role=worker 迁移为 member"
+assert_contains "$status_json" '"status":"idle"' "空闲 agent 状态显示为 idle"
+assert_contains "$status_json" '"status":"waiting"' "待确认 agent 状态显示为 waiting"
 
 card=$("$TTMUX" swarm task add listen-case "前端返工" --assignee web 2>/dev/null)
 [[ "$card" == "t1" ]] && pass "创建并派卡 t1 → web" || fail "创建卡片: got '${card}'"

@@ -228,6 +228,17 @@ body {
 .swarm-node-card.is-running {
   animation: swarm-node-live 2.4s ease-in-out infinite;
 }
+.swarm-node-card.is-idle {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--node-accent) 20%, transparent), transparent 52%),
+    color-mix(in srgb, var(--bg-container) 96%, #0f62fe 4%);
+  box-shadow: 0 8px 20px rgba(1, 4, 9, .22), inset 0 0 0 1px color-mix(in srgb, var(--node-accent) 10%, transparent);
+}
+.swarm-node-card.is-waiting {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--node-accent) 22%, transparent), transparent 52%),
+    color-mix(in srgb, var(--bg-container) 95%, #d29922 5%);
+}
 .swarm-node-card.is-pending {
   border-style: dashed;
 }
