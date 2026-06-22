@@ -726,7 +726,7 @@ function TerminalPane(props: {
           ))}
         </div>
         {showFiles && (
-          <div style={{ flex: '0 0 clamp(220px, 34%, 340px)', minWidth: 0 }}>
+          <div style={{ flex: '0 0 clamp(200px, 28%, 300px)', minWidth: 0 }}>
             <FileBrowser dir={cwd} accent="#58a6ff" onClose={() => setShowFiles(false)} />
           </div>
         )}

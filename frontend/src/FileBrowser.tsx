@@ -289,7 +289,7 @@ function Viewer({
     }
   }
   const codePre = (text: string) => (
-    <pre style={{ margin: 0, whiteSpace: 'pre', overflow: 'auto', height: previewHeight, background: 'var(--bg-base)', padding: 12, borderRadius: 8, fontFamily: 'ui-monospace, monospace', fontSize: 12.5, lineHeight: 1.5, color: '#c9d1d9' }}>{text}</pre>
+    <pre style={{ margin: 0, whiteSpace: 'pre', overflow: 'auto', height: previewHeight, background: 'var(--bg-base)', padding: 12, borderRadius: 8, fontFamily: 'ui-monospace, monospace', fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-bright)' }}>{text}</pre>
   )
   const resolvePreviewHref = (href: string, kind: 'link' | 'image') => {
     const local = localPathFromRef(path, href)
@@ -411,7 +411,7 @@ function Viewer({
 
   if (inline) {
     return (
-      <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: '#070b10' }}>
+      <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg-base)' }}>
         <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--border-subtle)' }}>{titleNode}</div>
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', padding: 12 }}>{bodyNode}</div>
       </div>
@@ -570,7 +570,7 @@ export default function FileBrowser({
   }, [cur, data?.entries, data?.parent, dir, pathDraft])
 
   const browserPane = (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0e13', borderLeft: '1px solid var(--border-subtle)', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-container)', borderLeft: '1px solid var(--border-subtle)', position: 'relative', overflow: 'hidden' }}>
       <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
           <span style={{ color: accent }}><FolderIcon /></span>
@@ -586,7 +586,7 @@ export default function FileBrowser({
           <IconButton title="上传到当前目录" disabled={uploading || !cur} onClick={() => fileRef.current?.click()}>{uploading ? '…' : <UploadIcon />}</IconButton>
         </div>
       </div>
-      <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--bg-container)' }}>
+      <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
         <AutoComplete
           value={pathDraft}
           options={pathOptions}
@@ -660,7 +660,7 @@ export default function FileBrowser({
         {data && data.entries.length === 0 && <div style={{ color: 'var(--text-dimmer)', fontSize: 12, padding: '6px 10px' }}>空目录</div>}
       </div>
       {layout === 'sidebar' && view && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 5, background: '#070b10' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 5, background: 'var(--bg-base)' }}>
           <Viewer path={view} accent={accent} inline onClose={() => setView(null)} onOpenPath={openPath} />
         </div>
       )}
@@ -669,8 +669,8 @@ export default function FileBrowser({
 
   if (layout === 'split') {
     return (
-      <div style={{ height: '100%', minHeight: 0, display: 'flex', background: '#070b10' }}>
-        <div style={{ flex: '0 0 clamp(280px, 32vw, 420px)', minWidth: 0, borderRight: '1px solid var(--border-subtle)' }}>
+      <div style={{ height: '100%', minHeight: 0, display: 'flex', background: 'var(--bg-base)' }}>
+        <div style={{ flex: '0 0 clamp(220px, 22vw, 300px)', minWidth: 0, borderRight: '1px solid var(--border-subtle)' }}>
           {browserPane}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>

@@ -148,6 +148,7 @@ export default function BrowserView() {
   const ripIdRef = useRef(0)
   const lastMoveRef = useRef(0)
   const wheelRef = useRef({ x: 0, y: 0, dx: 0, dy: 0, m: 0, timer: 0 as any })
+  const touchRef = useRef({ x: 0, y: 0, t: 0, moved: false })
 
   // control 开关用 ref 同步，供事件回调读取最新值
   useEffect(() => { controlRef.current = control }, [control])
@@ -299,7 +300,7 @@ export default function BrowserView() {
   // 把鼠标坐标换算成 CDP 期望的页面 CSS 像素坐标。
   // 关键：<img> 用 object-fit: contain（居中留黑边）且可能被旋转，
   // 所以先把屏幕点平移到舞台中心相对、再逆旋转回画面坐标系，最后扣黑边按真实显示区缩放。
-  const mapXY = (e: React.MouseEvent) => {
+  const mapClientXY = (clientX: number, clientY: number) => {
     const r = stageRef.current!.getBoundingClientRect()
     const nw = sizeRef.current.w, nh = sizeRef.current.h
     // 旋转 90/270 时画面盒子宽高对调
@@ -309,8 +310,8 @@ export default function BrowserView() {
     const dispW = nw * scale, dispH = nh * scale // 画面实际显示尺寸
     const padX = (boxW - dispW) / 2, padY = (boxH - dispH) / 2 // 黑边
     // 屏幕点 → 舞台中心相对
-    const dx = e.clientX - (r.left + r.width / 2)
-    const dy = e.clientY - (r.top + r.height / 2)
+    const dx = clientX - (r.left + r.width / 2)
+    const dy = clientY - (r.top + r.height / 2)
     // 逆旋转（R(-θ)）还原到未旋转的画面盒子坐标
     const rad = (rotation * Math.PI) / 180
     const cos = Math.cos(rad), sin = Math.sin(rad)
@@ -321,6 +322,7 @@ export default function BrowserView() {
     // 缩放到 CDP 页面坐标系（设备 CSS 像素）
     return { x: fx * nw, y: fy * nh }
   }
+  const mapXY = (e: React.MouseEvent) => mapClientXY(e.clientX, e.clientY)
 
   // CDP 修饰键位掩码：Alt=1 Ctrl=2 Meta=4 Shift=8
   const mods = (e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) =>
@@ -349,23 +351,66 @@ export default function BrowserView() {
     lastMoveRef.current = now
     send({ type: 'mouse', sub: 'move', ...mapXY(e), modifiers: mods(e) })
   }
-  // 滚轮合并：40ms 窗口内累加 delta 后一次性发，避免滚动时刷爆上行
-  const onWheel = (e: React.WheelEvent) => {
-    if (!controlRef.current) return
-    const { x, y } = mapXY(e as any)
+  const queueWheel = (x: number, y: number, deltaX: number, deltaY: number, modifiers = 0) => {
     // 画面旋转后，屏幕滚动方向也要逆旋转回页面坐标系，手势才跟视觉一致
     const rad = (rotation * Math.PI) / 180
     const cos = Math.cos(rad), sin = Math.sin(rad)
-    const ddx = e.deltaX * cos + e.deltaY * sin
-    const ddy = -e.deltaX * sin + e.deltaY * cos
+    const ddx = deltaX * cos + deltaY * sin
+    const ddy = -deltaX * sin + deltaY * cos
     const w = wheelRef.current
-    w.x = x; w.y = y; w.dx += ddx; w.dy += ddy; w.m = mods(e)
+    w.x = x; w.y = y; w.dx += ddx; w.dy += ddy; w.m = modifiers
     if (!w.timer) {
       w.timer = setTimeout(() => {
         send({ type: 'wheel', x: w.x, y: w.y, deltaX: w.dx, deltaY: w.dy, modifiers: w.m })
         w.dx = 0; w.dy = 0; w.timer = 0
       }, 40)
     }
+  }
+  // 滚轮合并：40ms 窗口内累加 delta 后一次性发，避免滚动时刷爆上行
+  const onWheel = (e: React.WheelEvent) => {
+    if (!controlRef.current) return
+    const { x, y } = mapXY(e as any)
+    queueWheel(x, y, e.deltaX, e.deltaY, mods(e))
+  }
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (!controlRef.current || e.touches.length !== 1) return
+    const t = e.touches[0]
+    touchRef.current = { x: t.clientX, y: t.clientY, t: performance.now(), moved: false }
+    stageRef.current?.focus()
+  }
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (!controlRef.current || e.touches.length !== 1) return
+    const t = e.touches[0]
+    const last = touchRef.current
+    const dx = t.clientX - last.x
+    const dy = t.clientY - last.y
+    if (Math.abs(dx) + Math.abs(dy) > 3) {
+      e.preventDefault()
+      last.moved = true
+      const { x, y } = mapClientXY(t.clientX, t.clientY)
+      // 手指上滑(dy<0) = 页面向下滚(deltaY>0)，保持移动端自然滚动方向。
+      queueWheel(x, y, -dx, -dy, 0)
+      last.x = t.clientX
+      last.y = t.clientY
+    }
+  }
+  const onTouchEnd = (e: React.TouchEvent) => {
+    if (!controlRef.current) return
+    const t = e.changedTouches[0]
+    if (!t) return
+    const last = touchRef.current
+    const tap = !last.moved && performance.now() - last.t < 420
+    if (!tap) return
+    const { x, y } = mapClientXY(t.clientX, t.clientY)
+    const st = stageRef.current
+    if (st) {
+      const r = st.getBoundingClientRect()
+      const id = ++ripIdRef.current
+      setRipples((rs) => [...rs, { id, x: t.clientX - r.left, y: t.clientY - r.top }])
+      setTimeout(() => setRipples((rs) => rs.filter((p) => p.id !== id)), 450)
+    }
+    send({ type: 'mouse', sub: 'down', x, y, button: 'left', modifiers: 0 })
+    send({ type: 'mouse', sub: 'up', x, y, button: 'left', modifiers: 0 })
   }
   const onKey = (e: React.KeyboardEvent) => {
     if (!controlRef.current) return
@@ -472,10 +517,13 @@ export default function BrowserView() {
         tabIndex={0}
         onKeyDown={onKey}
         onWheel={onWheel}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
         style={{
           flex: 1, minHeight: 0, background: '#000', overflow: 'hidden', position: 'relative',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: control ? 'default' : 'not-allowed', outline: 'none',
+          cursor: control ? 'default' : 'not-allowed', outline: 'none', touchAction: 'none',
         }}
       >
         <img

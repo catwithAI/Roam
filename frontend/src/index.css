@@ -1,10 +1,10 @@
 /* 全局基调 · 精致克制
    目标：细边框、舒展留白、克制的交互反馈、精修排版（近 Linear/Vercel 的高级感）。
    只调"基调"，不逐页堆样式；页面组件继承这里的观感即可。
-   黑/白主题：所有结构色走 CSS 变量，<html data-theme="light"> 时整体翻白。
+   黑/白主题：ThemeProvider 从 theme.tsx 的 THEME_TOKENS 统一写入 CSS 变量。
    终端画布的颜色由 Terminal.tsx 读取同名变量并随主题切换。 */
 
-/* ── 深色（默认）── */
+/* 启动前 fallback。运行后由 ThemeProvider 按当前主题覆盖这些变量。 */
 :root {
   color-scheme: dark;
   --bg-base: #0d1117;
@@ -32,36 +32,6 @@
   --hl-title: #d2a8ff;
   --hl-attr: #7ee787;
   --hl-built: #ffa657;
-}
-
-/* ── 浅色 ── */
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg-base: #f6f8fa;
-  --bg-container: #ffffff;
-  --bg-elevated: #ffffff;
-  --bg-term: #ffffff;
-  --border: #d0d7de;
-  --border-subtle: #e6e9ec;
-  --text-bright: #1f2328;
-  --text-dim: #57606a;
-  --text-dimmer: #8c959f;
-  --brand-grad: linear-gradient(180deg, #2c333b 0%, #1f2328 100%);
-  --list-hover: rgba(27, 31, 36, .04);
-  --scroll-thumb: #c9d1d9;
-  --scroll-thumb-hover: #aab1b9;
-  --card-hover-shadow: 0 8px 24px rgba(140, 149, 159, .18);
-  --elevated-shadow: 0 16px 48px rgba(140, 149, 159, .22);
-  --xterm-bg: #ffffff;
-  --xterm-fg: #1f2328;
-  /* highlight.js token 配色（浅色） */
-  --hl-comment: #6e7781;
-  --hl-keyword: #cf222e;
-  --hl-string: #0a3069;
-  --hl-number: #0550ae;
-  --hl-title: #8250df;
-  --hl-attr: #116329;
-  --hl-built: #953800;
 }
 
 html, body, #root { height: 100%; margin: 0; }
