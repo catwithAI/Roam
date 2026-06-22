@@ -439,7 +439,7 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
                 strokeDasharray={e.kind === 'cmd' ? '4 4' : undefined} opacity={e.kind === 'cmd' ? 0.55 : 0.95} markerEnd={e.kind === 'dep' ? 'url(#arr)' : undefined} />
             ))}
             {shown.map((n) => {
-              const col = nodeColor(n.kind)
+              const col = nodeColor(n)
               const dim = focus && focus !== n.name && n.role !== 'leader'
               const running = n.kind === 'running'
               const assigned = cards.filter((c) => c.assignee === n.name)
@@ -502,32 +502,35 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
 }
 
 function OfficeBackdrop({ w, h, title }: { w: number; h: number; title: string }) {
-  const sideW = Math.min(250, Math.max(160, w * 0.26))
-  const rightX = sideW + 28
-  const workW = Math.max(240, w - rightX - 18)
+  const rightX = 24
+  const workW = Math.max(240, w - rightX - 24)
   return (
     <g className="swarm-office-backdrop">
       <rect x="0" y="0" width={w} height={h} rx="18" fill="var(--bg-container)" />
       <text x={w - 26} y="42" textAnchor="end" className="swarm-office-title">{title}</text>
-      <rect x="24" y="64" width={sideW - 36} height={Math.max(88, h * 0.18)} rx="4" className="swarm-office-zone" />
-      <rect x="24" y={Math.max(178, h * 0.42)} width={sideW - 36} height={Math.max(98, h * 0.2)} rx="4" className="swarm-office-zone" />
-      <rect x="24" y={Math.max(286, h * 0.72)} width={sideW - 36} height={Math.max(86, h * 0.18)} rx="4" className="swarm-office-zone" />
       <g opacity=".34">
         <rect x={rightX} y="74" width={workW} height={Math.max(90, h - 104)} rx="12" fill="none" stroke="var(--border-subtle)" strokeDasharray="8 10" />
         {Array.from({ length: 4 }).map((_, i) => (
           <line key={i} x1={rightX + 34} x2={rightX + workW - 34} y1={118 + i * 98} y2={118 + i * 98} stroke="var(--border-subtle)" />
         ))}
       </g>
-      <g filter="url(#officeShadow)" opacity=".72">
-        <ellipse cx={sideW * 0.52} cy={Math.max(126, h * 0.2)} rx="54" ry="13" className="swarm-office-facility-shadow" />
-        <ellipse cx={sideW * 0.5} cy={Math.max(236, h * 0.5)} rx="58" ry="14" className="swarm-office-facility-shadow" />
-      </g>
     </g>
   )
 }
 
-function nodeColor(kind: string) {
-  return kind === 'running' || kind === 'done' ? C.green : kind === 'idle' ? C.blue : kind === 'waiting' || kind === 'pending' ? C.amber : kind === 'failed' ? C.red : kind === 'leader' ? C.magenta : C.fg2
+const MEMBER_COLORS = ['#58a6ff', '#3fb950', '#d2a8ff', '#39c5cf', '#ff7b72', '#f2cc60', '#a5d6ff', '#db6d28']
+function memberColor(name: string) {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return MEMBER_COLORS[h % MEMBER_COLORS.length]
+}
+function nodeColor(n: any) {
+  const kind = n.kind
+  if (kind === 'pending') return C.amber
+  if (kind === 'failed') return C.red
+  if (kind === 'exited') return C.fg2
+  if (kind === 'leader' && !n.name) return C.magenta
+  return memberColor(n.name || kind)
 }
 function nodeIcon(n: any) {
   if (n.role === 'leader') return '◆'
