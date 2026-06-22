@@ -291,6 +291,7 @@ const enUS = {
   'swarm.topologyHelp': 'Click a node → terminal / linked focus',
   'swarm.noMembersAdd': 'No members yet (click "+ member" in the top right)',
   'swarm.pending': 'Pending',
+  'swarm.waiting': 'Waiting for confirmation',
   'swarm.exited': 'Exited',
   'swarm.nodeCardsShort': '{count} card(s)',
   'swarm.nodePostsShort': '{count} post(s)',

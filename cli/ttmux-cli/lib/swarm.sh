@@ -159,6 +159,35 @@ _swarm_done_list() {
     sqlite3 "$db" "SELECT name FROM members WHERE done=1 ORDER BY name;"
 }
 
+_swarm_session_live_status() {
+    local sess="$1" kind="${2:-claude}" dead scr tail
+    if ! _session_exists "$sess"; then
+        [[ -f "${TTMUX_LOGS}/${sess}.log" ]] && echo "done" || echo "exited"
+        return 0
+    fi
+    dead=$("$TMUX_BIN" display-message -t "$sess" -p '#{pane_dead}' 2>/dev/null || echo 0)
+    if [[ "$dead" == "1" ]]; then
+        echo "done"
+        return 0
+    fi
+
+    scr=$("$TMUX_BIN" capture-pane -t "$sess" -p -J -S -80 2>/dev/null || true)
+    tail=$(printf '%s\n' "$scr" | tail -n 18)
+    if [[ "$tail" == *"Press enter"* || "$tail" == *"press enter"* || "$tail" == *"1. Yes"* || "$tail" == *"Do you want"* || "$tail" == *"Allow"* ]]; then
+        echo "waiting"
+        return 0
+    fi
+    if [[ "$tail" == *"❯"* || "$tail" == *"›"* || "$tail" == *"⏵⏵"* ]]; then
+        echo "idle"
+        return 0
+    fi
+    if [[ "$kind" == "codex" && "$tail" != *"Running"* && "$tail" != *"Thinking"* && "$tail" != *"Working"* ]]; then
+        echo "idle"
+        return 0
+    fi
+    echo "running"
+}
+
 # ── 依赖门控：pending 成员 <-> members.pending 列 + 规格列(type/task/workdir/model/perm) ──
 # 有依赖且未满足的成员 pending=1 不 spawn；满足后 _swarm_activate 取规格真正 spawn、置 pending=0。
 
@@ -500,10 +529,11 @@ _swarm_status_json() {
         while IFS=$'\x1f' read -r -d $'\x1e' mname mtype mtask mdeps mdone mkind mrole; do
             [[ -n "$mname" ]] || continue
             local sess="${name}-${mname}" lst="exited"
-            if _session_exists "$sess"; then
-                local dead; dead=$("$TMUX_BIN" display-message -t "$sess" -p '#{pane_dead}' 2>/dev/null || echo 0)
-                if [[ "$dead" == "1" ]]; then lst="done"; else lst="running"; fi
-            elif [[ -f "${TTMUX_LOGS}/${sess}.log" ]]; then lst="done"; fi
+            if [[ "${mdone:-0}" == "1" ]]; then
+                lst="done"
+            else
+                lst=$(_swarm_session_live_status "$sess" "$mkind")
+            fi
             (( first )) || printf ','
             first=0
             printf '{"name":"%s","type":"%s","task":"%s","deps":"%s","done":%s,"kind":"%s","role":"%s","status":"%s","session":"%s"}' \

@@ -28,6 +28,7 @@ const isLeaderRole = (role?: string) => role === 'leader' || role === 'master'
 const isLeaderAuthor = (author?: string) => author === 'leader' || author === 'master'
 const authorLabel = (author: string, t: T) => isLeaderAuthor(author) ? t('swarm.master') : author
 const displayPostText = (text: string) => text.replace(/(^|\s)@master\b/g, '$1@leader')
+const memberNodeKind = (m: Member) => m.done ? 'done' : ['running', 'idle', 'waiting', 'done'].includes(m.status) ? m.status : 'exited'
 
 interface SwarmRow { id: string; name: string; goal: string; status: string; supervisor: string; created: string; total: number; alive: number; pending: number }
 interface Member { name: string; type: string; task: string; deps: string; done: number; status: string; session: string; kind?: string; role?: string }
@@ -248,7 +249,7 @@ function SwarmDetail({ name, onBack, openTerm, onGone }: { name: string; onBack:
         {detail?.supervisor && <span style={{ color: C.magenta, fontSize: 12 }}>◆ {detail.supervisor}</span>}
         {detail && (
           <span style={{ color: C.fg2, fontSize: 12 }}>
-            {t('swarm.memberSummary', { total: detail.members.length, alive: detail.members.filter((m) => m.status === 'running').length })}{detail.pending.length ? <> · <span style={{ color: C.amber }}>{t('swarm.pendingSummary', { count: detail.pending.length })}</span></> : null}
+            {t('swarm.memberSummary', { total: detail.members.length, alive: detail.members.filter((m) => ['running', 'idle', 'waiting'].includes(m.status)).length })}{detail.pending.length ? <> · <span style={{ color: C.amber }}>{t('swarm.pendingSummary', { count: detail.pending.length })}</span></> : null}
           </span>
         )}
         {detail && (
@@ -439,7 +440,7 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
                   onPointerDown={(e) => startDrag(e, n)} onPointerMove={moveDrag} onPointerUp={(e) => endDrag(e, n.name)} onPointerCancel={() => { drag.current = null }}>
                   {running && <rect className="swarm-topology-pulse" x={n.x - 5} y={n.y - 5} width={n.w + 10} height={n.h + 10} rx={14} fill="none" stroke={col} strokeWidth={1.4} filter="url(#nodeGlow)" />}
                   <foreignObject x={n.x} y={n.y} width={n.w} height={n.h}>
-                    <div className={`swarm-node-card ${running ? 'is-running' : ''} ${n.kind === 'pending' ? 'is-pending' : ''}`} style={{ ['--node-accent' as any]: col }}>
+                    <div className={`swarm-node-card ${running ? 'is-running' : ''} ${n.kind === 'idle' ? 'is-idle' : ''} ${n.kind === 'waiting' ? 'is-waiting' : ''} ${n.kind === 'pending' ? 'is-pending' : ''}`} style={{ ['--node-accent' as any]: col }}>
                       <div className="swarm-node-head">
                         <span className="swarm-node-mark">{nodeIcon(n)}</span>
                         <span className="swarm-node-name">{isLeaderRole(n.mrole) ? '◆ ' : ''}{n.name}</span>
@@ -470,11 +471,12 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
 }
 
 function nodeColor(kind: string) {
-  return kind === 'running' || kind === 'done' ? C.green : kind === 'pending' ? C.amber : kind === 'failed' ? C.red : kind === 'leader' ? C.magenta : C.fg2
+  return kind === 'running' || kind === 'done' ? C.green : kind === 'idle' ? C.blue : kind === 'waiting' || kind === 'pending' ? C.amber : kind === 'failed' ? C.red : kind === 'leader' ? C.magenta : C.fg2
 }
 function nodeIcon(n: any) {
   if (n.role === 'leader') return '◆'
   if (n.kind === 'done') return '✔'
+  if (n.kind === 'waiting') return '?'
   if (n.kind === 'pending') return '⏳'
   if (n.kind === 'failed') return '✕'
   return '●'
@@ -482,6 +484,8 @@ function nodeIcon(n: any) {
 function nodeStatus(n: any, t: T) {
   if (n.kind === 'pending') return t('swarm.pending')
   if (n.kind === 'running') return t('common.running')
+  if (n.kind === 'idle') return t('terminal.status.idle')
+  if (n.kind === 'waiting') return t('swarm.waiting')
   if (n.kind === 'done') return t('common.done')
   if (n.kind === 'failed') return t('common.failed')
   return t('swarm.exited')
@@ -501,7 +505,7 @@ function buildLayout(detail: Detail | null, swarm: string) {
   const masterMember = detail.members.find((m) => isLeaderRole(m.role))
   const members = detail.members.filter((m) => m !== masterMember).map((m) => ({
     name: m.name, role: 'member' as const, deps: m.deps, session: m.session, task: m.task,
-    kind: m.done ? 'done' : m.status === 'running' ? 'running' : m.status === 'done' ? 'done' : 'exited',
+    kind: memberNodeKind(m),
     mrole: m.role, mkind: m.kind, // 成员级 角色(master/worker) 与 引擎(claude/codex)
   }))
   const pendings = detail.pending.map((p) => ({ name: p.name, role: 'pending' as const, deps: p.deps, session: `${swarm}-${p.name}`, kind: 'pending' }))
@@ -527,9 +531,7 @@ function buildLayout(detail: Detail | null, swarm: string) {
   // leader 顶部居中：优先 role=leader 成员；否则 supervisor(cc Leader)；都没有则不画幽灵节点
   const masterName = masterMember ? masterMember.name : detail.supervisor
   if (masterName) {
-    const mk = masterMember
-      ? (masterMember.done ? 'done' : masterMember.status === 'running' ? 'running' : masterMember.status === 'done' ? 'done' : 'exited')
-      : 'leader'
+    const mk = masterMember ? memberNodeKind(masterMember) : 'leader'
     nodes.push({ name: masterName, role: 'leader', kind: mk, deps: '', session: masterMember ? masterMember.session : detail.supervisor, task: masterMember?.task || detail.goal, x: w / 2 - NW / 2, y: TOP, w: NW, h: MASTER_H, mkind: masterMember?.kind })
   }
   layerKeys.forEach((k, li) => {
@@ -793,14 +795,16 @@ function NodeDrawer({ swarm, member, detail, cards, posts, openTerm, onClose, on
 
   const myCards = cards.filter((c) => c.assignee === member)
   const myPosts = posts.filter((p) => p.author === member)
-  const color = isMaster ? C.magenta : pend ? C.amber : m?.done ? C.green : m?.status === 'running' ? C.green : C.fg2
+  const color = isMaster ? C.magenta : pend ? C.amber : m?.done ? C.green : m?.status === 'running' ? C.green : m?.status === 'idle' ? C.blue : m?.status === 'waiting' ? C.amber : C.fg2
+  const tagStatus = m?.done ? 'done' : (m?.status || 'exited')
+  const tagColor = tagStatus === 'running' ? 'processing' : tagStatus === 'idle' ? 'blue' : tagStatus === 'waiting' ? 'warning' : tagStatus === 'done' ? 'success' : 'default'
 
   return (
     <Drawer open={!!member} onClose={onClose} width={drawerW} title={
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <i style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
         <b>{member}</b>
-        {isMaster ? <Tag color="blue">{t('swarm.master')}</Tag> : pend ? <Tag color="warning">{t('swarm.pending')}</Tag> : <Tag color={m?.status === 'running' ? 'processing' : 'default'}>{m?.done ? t('common.done') : m?.status}</Tag>}
+        {isMaster ? <Tag color="blue">{t('swarm.master')}</Tag> : pend ? <Tag color="warning">{t('swarm.pending')}</Tag> : <Tag color={tagColor}>{nodeStatus({ kind: tagStatus }, t)}</Tag>}
       </span>
     }>
       {member && (
