@@ -245,6 +245,20 @@ body {
   background: color-mix(in srgb, var(--node-accent) 10%, var(--bg-container));
   font-size: 10px;
 }
+.swarm-office-desk.is-compact .swarm-office-label {
+  top: 0;
+  gap: 5px;
+  max-width: 160px;
+}
+.swarm-office-desk.is-compact .swarm-office-label b {
+  max-width: 86px;
+  font-size: 13px;
+}
+.swarm-office-desk.is-compact .swarm-office-label span {
+  padding: 0 6px;
+  font-size: 9px;
+  line-height: 16px;
+}
 .swarm-office-surface {
   position: absolute;
   left: 18px;
@@ -267,6 +281,20 @@ body {
 }
 .swarm-office-surface::before { left: 18px; }
 .swarm-office-surface::after { right: 18px; }
+.swarm-office-desk.is-compact .swarm-office-surface {
+  left: 9px;
+  right: 9px;
+  top: 38px;
+  height: 44px;
+}
+.swarm-office-desk.is-compact .swarm-office-surface::before,
+.swarm-office-desk.is-compact .swarm-office-surface::after {
+  bottom: -32px;
+  width: 6px;
+  height: 32px;
+}
+.swarm-office-desk.is-compact .swarm-office-surface::before { left: 12px; }
+.swarm-office-desk.is-compact .swarm-office-surface::after { right: 12px; }
 .swarm-office-monitor {
   position: absolute;
   left: 50%;
@@ -279,6 +307,16 @@ body {
   background: linear-gradient(135deg, #5eb1ff, #0f4fa8);
   box-shadow: 0 9px 16px rgba(1, 4, 9, .13);
   animation: swarm-office-screen-idle 3.8s ease-in-out infinite;
+}
+.swarm-office-desk.is-compact .swarm-office-monitor {
+  top: -24px;
+  width: 60px;
+  height: 35px;
+  border-width: 2px;
+}
+.swarm-office-desk.is-compact .swarm-office-monitor span {
+  bottom: 2px;
+  font-size: 8px;
 }
 .swarm-office-monitor.is-codex {
   background: linear-gradient(135deg, #3fb950, #0b5f2a);
@@ -308,6 +346,12 @@ body {
   border-radius: 3px;
   background: linear-gradient(180deg, #f4f7fb, #d8e0ea);
 }
+.swarm-office-desk.is-compact .swarm-office-tower {
+  right: 31px;
+  top: -3px;
+  width: 16px;
+  height: 32px;
+}
 .swarm-office-keyboard {
   position: absolute;
   left: 50%;
@@ -317,6 +361,11 @@ body {
   transform: translateX(-50%);
   border-radius: 2px;
   background: rgba(192, 202, 214, .72);
+}
+.swarm-office-desk.is-compact .swarm-office-keyboard {
+  top: 24px;
+  width: 48px;
+  height: 8px;
 }
 .swarm-office-chair {
   position: absolute;
@@ -328,6 +377,18 @@ body {
   border-radius: 14px 14px 8px 8px;
   background: linear-gradient(180deg, #6f7783, #3d444f);
   box-shadow: 0 12px 20px rgba(1, 4, 9, .2);
+}
+.swarm-office-desk.is-compact .swarm-office-chair {
+  top: 64px;
+  width: 58px;
+  height: 56px;
+  border-radius: 12px 12px 7px 7px;
+}
+.swarm-office-desk.is-compact .swarm-office-chair::before {
+  left: 9px;
+  right: 9px;
+  bottom: 15px;
+  height: 8px;
 }
 .swarm-office-chair::before {
   content: "";
@@ -354,6 +415,42 @@ body {
   box-shadow: 0 0 0 2px rgba(255,255,255,.08), 0 8px 12px rgba(1,4,9,.18);
   animation: swarm-office-agent-breathe 3.2s ease-in-out infinite;
 }
+.swarm-office-desk.is-compact .swarm-office-agent {
+  top: -15px;
+  width: 38px;
+  height: 45px;
+  background:
+    radial-gradient(circle at 50% 30%, #080b10 0 13px, transparent 14px),
+    linear-gradient(180deg, transparent 0 25px, #080b10 26px 100%);
+}
+.swarm-office-desk.is-compact .swarm-office-agent span {
+  left: 6px;
+  right: 7px;
+  top: -3px;
+  height: 10px;
+}
+.swarm-office-desk.is-compact .swarm-office-agent span::after {
+  left: 18px;
+  bottom: -4px;
+  width: 15px;
+  height: 5px;
+}
+.swarm-office-desk.is-compact .swarm-office-agent::before,
+.swarm-office-desk.is-compact .swarm-office-agent::after {
+  top: 25px;
+  width: 10px;
+  height: 17px;
+}
+.swarm-office-desk.is-compact .swarm-office-agent::before { left: 1px; }
+.swarm-office-desk.is-compact .swarm-office-agent::after { right: 1px; }
+.swarm-office-desk.is-compact .swarm-office-agent i,
+.swarm-office-desk.is-compact .swarm-office-agent em {
+  top: 38px;
+  width: 8px;
+  height: 17px;
+}
+.swarm-office-desk.is-compact .swarm-office-agent i { left: 8px; }
+.swarm-office-desk.is-compact .swarm-office-agent em { right: 8px; }
 .swarm-office-agent span {
   display: block;
   position: absolute;
@@ -463,6 +560,16 @@ body {
   display: flex;
   justify-content: center;
   gap: 6px;
+}
+.swarm-office-desk.is-compact .swarm-office-stats {
+  left: 4px;
+  right: 4px;
+  bottom: 0;
+  gap: 4px;
+}
+.swarm-office-desk.is-compact .swarm-office-stats span {
+  padding: 0 5px;
+  font-size: 9px;
 }
 .swarm-office-stats span {
   border-radius: 999px;

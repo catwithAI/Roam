@@ -355,9 +355,10 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [viewport, setViewport] = useState({ w: 0, h: 0 })
   const [view, setView] = useState<'office' | 'graph'>('office')
-  const layout = useMemo(() => buildLayout(detail, swarm), [detail, swarm])
-  const canvasW = Math.max(layout.w, Math.floor(viewport.w - 16), 420)
-  const canvasH = Math.max(layout.h, Math.floor(viewport.h - 16), 320)
+  const compactOffice = view === 'office' && viewport.w > 0 && viewport.w < 560
+  const layout = useMemo(() => buildLayout(detail, swarm, compactOffice), [detail, swarm, compactOffice])
+  const canvasW = Math.max(layout.w, Math.floor(viewport.w - 16), view === 'office' ? 320 : 420)
+  const canvasH = Math.max(layout.h, Math.floor(viewport.h - 16), view === 'office' ? 280 : 320)
   const bounds = useMemo(() => {
     if (layout.nodes.length === 0) return { minX: 0, minY: 0, w: layout.w, h: layout.h }
     const minX = Math.min(...layout.nodes.map((n) => n.x))
@@ -378,6 +379,10 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+  useEffect(() => {
+    userPositioned.current = false
+    setPos({})
+  }, [view, compactOffice])
   useEffect(() => {
     setPos((prev) => {
       const next: Record<string, { x: number; y: number }> = {}
@@ -429,7 +434,7 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
     if (!d?.moved) onNode(name)
   }
   return (
-    <Panel title={<><span>{t('swarm.topologyTitle')}</span></>} extra={<Space size={8}>
+    <Panel title={<><span>{t('swarm.topologyTitle')}</span></>} extra={<Space size={6} wrap>
       <Segmented size="small" value={view} onChange={(v) => setView(v as 'office' | 'graph')}
         options={[{ label: t('swarm.topology.view.office'), value: 'office' }, { label: t('swarm.topology.view.graph'), value: 'graph' }]} />
       <span style={{ fontSize: 11, color: C.fg3 }}>{t('swarm.topologyHelp')}</span>
@@ -437,7 +442,7 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
       <div ref={wrapRef} style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 8 }}>
         {layout.nodes.length === 0 ? <Empty description={t('swarm.noMembersAdd')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> : (
           <svg viewBox={`0 0 ${canvasW} ${canvasH}`} width={canvasW} height={canvasH} preserveAspectRatio="xMinYMin meet"
-            style={{ display: 'block', margin: '0 auto', width: '100%', height: '100%', minHeight: 300, touchAction: 'none' }}>
+            style={{ display: 'block', margin: '0 auto', width: '100%', height: '100%', minHeight: view === 'office' ? 260 : 300, touchAction: 'none' }}>
             <defs>
               <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill={C.green} /></marker>
               <filter id="nodeGlow" x="-20%" y="-20%" width="140%" height="140%">
@@ -465,7 +470,7 @@ function Topology({ detail, swarm, cards, posts, focus, onNode }: {
                   {running && <rect className="swarm-topology-pulse" x={n.x - 5} y={n.y - 5} width={n.w + 10} height={n.h + 10} rx={14} fill="none" stroke={col} strokeWidth={1.4} filter="url(#nodeGlow)" />}
                   <foreignObject x={n.x} y={n.y} width={n.w} height={n.h}>
                     {view === 'office' ? (
-                      <div className={`swarm-office-desk ${running ? 'is-running' : ''} ${n.kind === 'idle' ? 'is-idle' : ''} ${n.kind === 'waiting' ? 'is-waiting' : ''}`} style={{ ['--node-accent' as any]: col }}>
+                      <div className={`swarm-office-desk ${n.w < 220 ? 'is-compact' : ''} ${running ? 'is-running' : ''} ${n.kind === 'idle' ? 'is-idle' : ''} ${n.kind === 'waiting' ? 'is-waiting' : ''}`} style={{ ['--node-accent' as any]: col }}>
                         <div className="swarm-office-label">
                           <b>{isLeaderRole(n.mrole) ? `◆ ${n.name}` : n.name}</b>
                           <span>{nodeStatus(n, t)}</span>
@@ -585,8 +590,13 @@ function nodeRole(n: any, t: T) {
 }
 
 // 分层布局：leader 顶部；成员按 deps 深度分层
-function buildLayout(detail: Detail | null, swarm: string) {
-  const NW = 240, NH = 164, GX = 34, GY = 78, TOP = 14, MASTER_H = 154
+function buildLayout(detail: Detail | null, swarm: string, compact = false) {
+  const NW = compact ? 176 : 240
+  const NH = compact ? 132 : 164
+  const GX = compact ? 14 : 34
+  const GY = compact ? 42 : 78
+  const TOP = compact ? 8 : 14
+  const MASTER_H = compact ? 124 : 154
   if (!detail) return { nodes: [], edges: [], w: 400, h: 280 }
   type N = { name: string; role: 'leader' | 'member' | 'pending'; kind: string; deps: string; session: string; task?: string; x: number; y: number; w: number; h: number; mrole?: string; mkind?: string }
   // leader 顶点优先用 role=leader 的成员（它从分层行里排除，只在顶部画一次）
