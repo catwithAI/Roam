@@ -18,26 +18,21 @@ type Runtime struct {
 	MetaDir    string
 	EnvFile    string
 	TmuxBin    string
-	ShellPath  string
-	Repository string
 	Now        func() time.Time
 }
 
 func New() Runtime {
 	home, _ := os.UserHomeDir()
 	dataDir := envOr("TTMUX_DATA", filepath.Join(home, ".local", "share", "ttmux"))
-	root := discoverRepo()
 	return Runtime{
-		HomeDir:    envOr("TTMUX_HOME", filepath.Join(home, ".ttmux")),
-		DataDir:    dataDir,
-		LogsDir:    filepath.Join(dataDir, "logs"),
-		GroupsDir:  filepath.Join(dataDir, "groups"),
-		MetaDir:    filepath.Join(dataDir, "meta"),
-		EnvFile:    filepath.Join(dataDir, "env"),
-		TmuxBin:    envOrLookup("TMUX_BIN", "tmux"),
-		ShellPath:  envOr("TTMUX_SHELL", filepath.Join(root, "ttmux")),
-		Repository: root,
-		Now:        time.Now,
+		HomeDir:   envOr("TTMUX_HOME", filepath.Join(home, ".ttmux")),
+		DataDir:   dataDir,
+		LogsDir:   filepath.Join(dataDir, "logs"),
+		GroupsDir: filepath.Join(dataDir, "groups"),
+		MetaDir:   filepath.Join(dataDir, "meta"),
+		EnvFile:   filepath.Join(dataDir, "env"),
+		TmuxBin:   envOrLookup("TMUX_BIN", "tmux"),
+		Now:       time.Now,
 	}
 }
 
@@ -51,15 +46,6 @@ func (r Runtime) EnsureDirs() error {
 		}
 	}
 	return nil
-}
-
-func (r Runtime) Shell(args ...string) error {
-	cmd := exec.Command(r.ShellPath, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
-	return cmd.Run()
 }
 
 func (r Runtime) Tmux(args ...string) error {
@@ -287,17 +273,4 @@ func envOrLookup(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func discoverRepo() string {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	for dir := wd; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, "ttmux")); err == nil {
-			return dir
-		}
-	}
-	return wd
 }
