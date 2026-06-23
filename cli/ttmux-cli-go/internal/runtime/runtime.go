@@ -41,6 +41,9 @@ func New() Runtime {
 	}
 }
 
+// Version is the ttmux CLI version reported by the Go binary.
+const Version = "0.4.1-go"
+
 func (r Runtime) EnsureDirs() error {
 	for _, dir := range []string{r.LogsDir, r.GroupsDir, r.MetaDir, filepath.Join(r.HomeDir, "swarms")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -82,6 +85,64 @@ func (r Runtime) HasSession(name string) bool {
 	return cmd.Run() == nil
 }
 
+// Sessions returns all tmux session names (unfiltered).
+func (r Runtime) Sessions() []string {
+	out, _ := r.TmuxOutput("list-sessions", "-F", "#{session_name}")
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			names = append(names, line)
+		}
+	}
+	return names
+}
+
+// EnvPairs reads the global env file as KEY=VALUE lines (comments/blanks skipped).
+func (r Runtime) EnvPairs() []string {
+	b, err := os.ReadFile(r.EnvFile)
+	if err != nil {
+		return nil
+	}
+	var lines []string
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// SetGlobalEnv pushes the env file into tmux's global environment so new
+// sessions inherit it (mirrors _set_global_env).
+func (r Runtime) SetGlobalEnv() {
+	for _, line := range r.EnvPairs() {
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		_ = r.Tmux("set-environment", "-g", key, val)
+	}
+}
+
+// InjectEnv injects the env file into a live session (mirrors _inject_env).
+func (r Runtime) InjectEnv(sess string) {
+	lines := r.EnvPairs()
+	if len(lines) == 0 {
+		return
+	}
+	for _, line := range lines {
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		_ = r.Tmux("set-environment", "-t", sess, key, val)
+		_ = r.Tmux("send-keys", "-t", sess, "export "+line, "C-m")
+	}
+	_ = r.Tmux("send-keys", "-t", sess, "clear", "C-m")
+}
+
 func (r Runtime) GroupFile(name string) string {
 	return filepath.Join(r.GroupsDir, name+".group")
 }
@@ -121,6 +182,51 @@ func (r Runtime) TaskDescRaw(name string) string {
 	return ""
 }
 
+func (r Runtime) GroupExists(group string) bool {
+	_, err := os.Stat(r.GroupFile(group))
+	return err == nil
+}
+
+func (r Runtime) GroupAddSession(group, session string) error {
+	f, err := os.OpenFile(r.GroupFile(group), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(session + "\n")
+	return err
+}
+
+func (r Runtime) LogFile(sess string) string {
+	return filepath.Join(r.LogsDir, sess+".log")
+}
+
+// WriteTaskMeta records type/desc/workdir/started for a task session,
+// mirroring _task_write_meta so status/collect/kill share one path.
+func (r Runtime) WriteTaskMeta(sess, taskType, desc, workdir string) error {
+	dir := r.TaskMetaDir(sess)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	writes := map[string]string{
+		"type.txt":    taskType + "\n",
+		"desc.txt":    desc + "\n",
+		"workdir.txt": workdir + "\n",
+		"started.txt": r.Now().Format("2006-01-02 15:04:05") + "\n",
+	}
+	for name, content := range writes {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r Runtime) CleanTaskMeta(sess string) {
+	_ = os.RemoveAll(r.TaskMetaDir(sess))
+	_ = os.RemoveAll(filepath.Join(r.DataDir, "agents", sess))
+}
+
 func (r Runtime) GroupSessions(group string) ([]string, error) {
 	b, err := os.ReadFile(r.GroupFile(group))
 	if err != nil {
@@ -134,6 +240,22 @@ func (r Runtime) GroupSessions(group string) ([]string, error) {
 		}
 	}
 	return sessions, nil
+}
+
+// WaitSession blocks until a session is gone or its pane is dead, or timeout
+// seconds elapse (mirrors _do_wait_session). Returns true on completion.
+func (r Runtime) WaitSession(sess string, timeout int) bool {
+	for elapsed := 0; elapsed < timeout; elapsed++ {
+		if !r.HasSession(sess) {
+			return true
+		}
+		dead, _ := r.TmuxOutput("display-message", "-t", sess, "-p", "#{pane_dead}")
+		if strings.TrimSpace(dead) == "1" {
+			return true
+		}
+		time.Sleep(time.Second)
+	}
+	return false
 }
 
 func (r Runtime) ReadCapture(name string, lines string) (string, error) {

@@ -156,6 +156,37 @@ func SessionNames(opt Options) map[string]bool {
 	return set
 }
 
+// Names returns the set of swarm names (meta.db registry plus legacy dirs
+// under DataDir/swarms), mirroring _swarm_names. Used to hide swarm groups
+// from the plain group listing.
+func Names(opt Options) map[string]bool {
+	opt = opt.withDefaults()
+	names := map[string]bool{}
+	metaPath := filepath.Join(opt.HomeDir, "meta.db")
+	if _, err := os.Stat(metaPath); err == nil {
+		if db, err := openSQLite(metaPath); err == nil {
+			if rows, err := db.Query(`SELECT name FROM swarms`); err == nil {
+				for rows.Next() {
+					var n string
+					if rows.Scan(&n) == nil && n != "" {
+						names[n] = true
+					}
+				}
+				rows.Close()
+			}
+			db.Close()
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(opt.DataDir, "swarms")); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				names[e.Name()] = true
+			}
+		}
+	}
+	return names
+}
+
 func StatusJSON(name string, opt Options) ([]byte, error) {
 	st, err := Status(name, opt)
 	if err != nil {
@@ -253,7 +284,9 @@ func Status(name string, opt Options) (*SwarmStatus, error) {
 }
 
 func openSQLite(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+	// busy_timeout lets concurrent readers (status) and writers (agents posting
+	// to plaza/board) wait briefly for the lock instead of failing immediately.
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +322,15 @@ func migrateSwarmDB(db *sql.DB) error {
 		if _, err := db.Exec(`ALTER TABLE members ADD COLUMN role TEXT DEFAULT 'member'`); err != nil {
 			return err
 		}
+	}
+	// Normalize legacy master/worker roles, but only when such rows exist — this
+	// keeps the common status read lock-free instead of writing on every call.
+	var legacy int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM members WHERE role IN ('master','worker') OR IFNULL(role,'')=''`).Scan(&legacy); err != nil {
+		return err
+	}
+	if legacy == 0 {
+		return nil
 	}
 	if _, err := db.Exec(`UPDATE members SET role='leader' WHERE role='master'`); err != nil {
 		return err

@@ -35,18 +35,36 @@ fi
 # 创建目录
 mkdir -p "$INSTALL_DIR" "$DATA_DIR/logs" "$DATA_DIR/groups"
 
-# 下载或复制 ttmux
+# 安装 ttmux —— 混合策略：本地有 Go 工具链就编译原生二进制(更快、跨平台、零 bash/python3/sqlite3
+# 运行时依赖)；否则回退到 bash 脚本(本地拷贝或从 GitHub 下载)。
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "${SCRIPT_DIR}/ttmux" ]]; then
-    step "从本地安装..."
-    cp "${SCRIPT_DIR}/ttmux" "${INSTALL_DIR}/ttmux"
+GO_SRC="${SCRIPT_DIR}/cli/ttmux-cli-go"
+
+install_bash_ttmux() {
+    if [[ -f "${SCRIPT_DIR}/ttmux" ]]; then
+        step "从本地安装 (bash)..."
+        cp "${SCRIPT_DIR}/ttmux" "${INSTALL_DIR}/ttmux"
+    else
+        step "从 GitHub 下载 (bash)..."
+        curl -fsSL "https://raw.githubusercontent.com/${REPO}/${BRANCH}/ttmux" \
+            -o "${INSTALL_DIR}/ttmux"
+    fi
+}
+
+if command -v go &>/dev/null && [[ -d "${GO_SRC}/cmd/ttmux-cli-go" ]]; then
+    step "用 Go 构建 ttmux (原生二进制)..."
+    if (cd "$GO_SRC" && CGO_ENABLED=0 go build -o "${INSTALL_DIR}/ttmux" ./cmd/ttmux-cli-go); then
+        info "ttmux (Go) 已安装到 ${INSTALL_DIR}/ttmux"
+    else
+        echo -e "  ${dim}⚠ Go 构建失败，回退 bash 版${reset}"
+        install_bash_ttmux
+        info "ttmux (bash) 已安装到 ${INSTALL_DIR}/ttmux"
+    fi
 else
-    step "从 GitHub 下载..."
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${BRANCH}/ttmux" \
-        -o "${INSTALL_DIR}/ttmux"
+    install_bash_ttmux
+    info "ttmux (bash) 已安装到 ${INSTALL_DIR}/ttmux"
 fi
 chmod +x "${INSTALL_DIR}/ttmux"
-info "ttmux 已安装到 ${INSTALL_DIR}/ttmux"
 
 # 下载或复制 chrome（独立的浏览器自动化 CLI）
 if [[ -f "${SCRIPT_DIR}/chrome" ]]; then

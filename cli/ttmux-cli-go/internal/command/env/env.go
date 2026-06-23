@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"ttmux-cli-go/internal/runtime"
+	"ttmux-cli-go/internal/ui"
 )
 
 type entry struct {
@@ -29,7 +30,7 @@ func Run(rt runtime.Runtime, args []string, w io.Writer) error {
 		if len(args) > 0 && args[0] == "--json" {
 			return ListJSON(rt, w)
 		}
-		return rt.Shell(append([]string{"env", subcmd}, args...)...)
+		return ListText(rt, w)
 	case "--json":
 		return ListJSON(rt, w)
 	case "set":
@@ -45,7 +46,7 @@ func Run(rt runtime.Runtime, args []string, w io.Writer) error {
 	case "clear":
 		return Clear(rt, w)
 	case "push":
-		return rt.Shell("env", "push")
+		return Push(rt, w)
 	default:
 		if strings.Contains(subcmd, "=") {
 			return Set(rt, subcmd, w)
@@ -63,6 +64,24 @@ func ListJSON(rt runtime.Runtime, w io.Writer) error {
 		}
 	}
 	return json.NewEncoder(w).Encode(entries)
+}
+
+// ListText prints the global env vars (mirrors _env_list).
+func ListText(rt runtime.Runtime, w io.Writer) error {
+	lines := readEnvLines(rt)
+	if len(lines) == 0 {
+		ui.Info(w, "无全局环境变量")
+		return nil
+	}
+	p := ui.P()
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s %s\n\n", ui.Bold("全局环境变量"), ui.Dim("("+rt.EnvFile+")"))
+	for _, line := range lines {
+		k, v, _ := strings.Cut(line, "=")
+		fmt.Fprintf(w, "    %s%s%s=%s%s%s\n", p.Green, k, p.Reset, p.Dim, v, p.Reset)
+	}
+	fmt.Fprintln(w)
+	return nil
 }
 
 func Set(rt runtime.Runtime, kv string, w io.Writer) error {
@@ -114,6 +133,24 @@ func Clear(rt runtime.Runtime, w io.Writer) error {
 	}
 	_, err := fmt.Fprintln(w, "全局环境变量已清空")
 	return err
+}
+
+// Push injects the env file into every live session (mirrors _env_push).
+func Push(rt runtime.Runtime, w io.Writer) error {
+	sessions := rt.Sessions()
+	if len(sessions) == 0 {
+		ui.Info(w, "没有活跃会话")
+		return nil
+	}
+	if len(rt.EnvPairs()) == 0 {
+		ui.Info(w, "无环境变量可推送")
+		return nil
+	}
+	for _, sess := range sessions {
+		rt.InjectEnv(sess)
+		ui.Ok(w, "已推送到 %s", ui.Bold(sess))
+	}
+	return nil
 }
 
 func readEnvLines(rt runtime.Runtime) []string {
