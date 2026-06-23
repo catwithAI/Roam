@@ -20,12 +20,13 @@ e2e:
 	./e2e/e2e.sh
 
 # Cross-compiled release binaries (pure Go, no cgo).
+# Asset names match install.sh's download_asset: ttmux-<os>-<arch>.
 dist:
 	@mkdir -p dist
 	@for t in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 freebsd/amd64; do \
 		os=$${t%/*}; arch=$${t#*/}; \
-		echo "building dist/$(BIN)-$$os-$$arch"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -o dist/$(BIN)-$$os-$$arch $(PKG); \
+		echo "building dist/ttmux-$$os-$$arch"; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -o dist/ttmux-$$os-$$arch $(PKG); \
 	done
 
 clean:

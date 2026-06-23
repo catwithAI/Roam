@@ -35,43 +35,58 @@ fi
 # 创建目录
 mkdir -p "$INSTALL_DIR" "$DATA_DIR/logs" "$DATA_DIR/groups"
 
-# 安装 ttmux —— 混合策略：本地有 Go 工具链就编译原生二进制(更快、跨平台、零 bash/python3/sqlite3
-# 运行时依赖)；否则回退到 bash 脚本(本地拷贝或从 GitHub 下载)。
+# ttmux / chrome 是生成物，不再提交进仓库：
+#   - 本地 checkout：现场构建（ttmux 优先 Go，回退 bash；chrome 走 build.sh）
+#   - curl|bash 远程：从 GitHub Releases 下载预编译产物
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GO_SRC="${SCRIPT_DIR}/cli/ttmux-cli-go"
+TTMUX_BUILD="${SCRIPT_DIR}/cli/ttmux-cli/build.sh"
+CHROME_BUILD="${SCRIPT_DIR}/cli/chrome-cli/build.sh"
 
-install_bash_ttmux() {
-    if [[ -f "${SCRIPT_DIR}/ttmux" ]]; then
-        step "从本地安装 (bash)..."
-        cp "${SCRIPT_DIR}/ttmux" "${INSTALL_DIR}/ttmux"
-    else
-        step "从 GitHub 下载 (bash)..."
-        curl -fsSL "https://raw.githubusercontent.com/${REPO}/${BRANCH}/ttmux" \
-            -o "${INSTALL_DIR}/ttmux"
-    fi
+# 目标平台标识（用于 release 资产名 ttmux-<os>-<arch>）
+release_target() {
+    local os arch
+    case "$(uname -s)" in Linux) os=linux ;; Darwin) os=darwin ;; *) os=linux ;; esac
+    case "$(uname -m)" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
+    echo "${os}-${arch}"
+}
+# 从 latest release 下载资产到 INSTALL_DIR/<本地名>
+download_asset() {  # <local-name> <asset-name>
+    curl -fsSL "https://github.com/${REPO}/releases/latest/download/${2}" -o "${INSTALL_DIR}/${1}"
 }
 
-if command -v go &>/dev/null && [[ -d "${GO_SRC}/cmd/ttmux-cli-go" ]]; then
-    step "用 Go 构建 ttmux (原生二进制)..."
-    if (cd "$GO_SRC" && CGO_ENABLED=0 go build -o "${INSTALL_DIR}/ttmux" ./cmd/ttmux-cli-go); then
-        info "ttmux (Go) 已安装到 ${INSTALL_DIR}/ttmux"
+# ── ttmux ──
+if [[ -d "${GO_SRC}/cmd/ttmux-cli-go" ]]; then
+    if command -v go &>/dev/null; then
+        step "用 Go 构建 ttmux (原生二进制)..."
+        if (cd "$GO_SRC" && CGO_ENABLED=0 go build -o "${INSTALL_DIR}/ttmux" ./cmd/ttmux-cli-go); then
+            info "ttmux (Go) 已安装到 ${INSTALL_DIR}/ttmux"
+        else
+            echo -e "  ${dim}⚠ Go 构建失败，回退 bash 构建${reset}"
+            bash "$TTMUX_BUILD" >/dev/null && cp "${SCRIPT_DIR}/ttmux" "${INSTALL_DIR}/ttmux"
+            info "ttmux (bash) 已安装到 ${INSTALL_DIR}/ttmux"
+        fi
     else
-        echo -e "  ${dim}⚠ Go 构建失败，回退 bash 版${reset}"
-        install_bash_ttmux
+        step "未检测到 Go，构建 bash ttmux..."
+        bash "$TTMUX_BUILD" >/dev/null && cp "${SCRIPT_DIR}/ttmux" "${INSTALL_DIR}/ttmux"
         info "ttmux (bash) 已安装到 ${INSTALL_DIR}/ttmux"
     fi
 else
-    install_bash_ttmux
-    info "ttmux (bash) 已安装到 ${INSTALL_DIR}/ttmux"
+    step "从 GitHub Releases 下载 ttmux ($(release_target))..."
+    if download_asset ttmux "ttmux-$(release_target)"; then
+        info "ttmux 已安装到 ${INSTALL_DIR}/ttmux"
+    else
+        echo -e " ✘ 下载失败；请确认已发布 release，或克隆仓库本地安装"
+        exit 1
+    fi
 fi
 chmod +x "${INSTALL_DIR}/ttmux"
 
-# 下载或复制 chrome（独立的浏览器自动化 CLI）
-if [[ -f "${SCRIPT_DIR}/chrome" ]]; then
-    cp "${SCRIPT_DIR}/chrome" "${INSTALL_DIR}/chrome"
+# ── chrome（独立的浏览器自动化 CLI，仅 bash）──
+if [[ -f "$CHROME_BUILD" ]]; then
+    bash "$CHROME_BUILD" >/dev/null 2>&1 && cp "${SCRIPT_DIR}/chrome" "${INSTALL_DIR}/chrome" 2>/dev/null || true
 else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${BRANCH}/chrome" \
-        -o "${INSTALL_DIR}/chrome" 2>/dev/null || true
+    download_asset chrome "chrome" 2>/dev/null || true
 fi
 [[ -f "${INSTALL_DIR}/chrome" ]] && chmod +x "${INSTALL_DIR}/chrome" \
     && info "chrome 已安装到 ${INSTALL_DIR}/chrome"
