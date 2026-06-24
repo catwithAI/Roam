@@ -96,6 +96,9 @@ func Handler(c *gin.Context) {
 	// 表现为当前这个明明很宽却渲染成左侧窄条；latest + aggressive-resize 让在用的客户端尺寸生效。
 	_ = exec.Command("tmux", "set-option", "-t", name, "window-size", "latest").Run()
 	_ = exec.Command("tmux", "set-window-option", "-t", name, "aggressive-resize", "on").Run()
+	// extended-keys always: 让 tmux 接受并透传 CSI u 修饰键序列（如 Shift+Enter = \x1b[13;2u），
+	// 使 Claude Code / Codex 等 TUI 能区分 Enter(提交) 与 Shift+Enter(换行)。
+	_ = exec.Command("tmux", "set-option", "-t", name, "extended-keys", "always").Run()
 
 	// 新连接一律退出可能残留的 copy-mode：copy-mode 是会话级状态，会跨 attach/重连存活。
 	// 上次滚动历史进了 copy-mode 后断线重连时，本连接的 inCopy 会重置为 false，但 tmux 仍停在
