@@ -50,7 +50,8 @@ const Term = forwardRef<TermHandle, {
   onContextMenu?: (e: { x: number; y: number; selection: string }) => void
   onSelectionMenu?: (e: { x: number; y: number; selection: string }) => void
   onPaste?: () => void // Ctrl+Shift+V / Cmd+V：交父组件走应用粘贴（读剪贴板→失败弹手动框）
-}>(function Term({ name, fontSize, active, onStatus, onContextMenu, onSelectionMenu, onPaste }, ref) {
+  onImagePaste?: (files: File[]) => void // 粘贴事件含图片时回调（绕过键盘拦截时的兜底）
+}>(function Term({ name, fontSize, active, onStatus, onContextMenu, onSelectionMenu, onPaste, onImagePaste }, ref) {
   const elRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal>()
   const fitRef = useRef<FitAddon>()
@@ -134,6 +135,14 @@ const Term = forwardRef<TermHandle, {
     // Ctrl/Cmd+Shift+C 始终复制（与浏览器习惯一致）。返回 false 表示该按键不再发给终端。
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true
+      // Shift+Enter → CSI u 序列 \x1b[13;2u：让 Claude Code / Codex 等 TUI 识别为换行而非提交。
+      // 需配合后端 tmux set-option extended-keys always。
+      if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault()
+        const ws = wsRef.current
+        if (ws && ws.readyState === 1) ws.send('\x1b[13;2u')
+        return false
+      }
       // Ctrl+Shift+V / Cmd+V：接管粘贴。xterm 原生 paste 依赖浏览器 paste 事件，在局域网
       // http(非安全上下文)读不到剪贴板，这里统一交给应用：能读则读、读不到弹手动粘贴框。
       const isV = e.key === 'v' || e.key === 'V'
@@ -212,6 +221,22 @@ const Term = forwardRef<TermHandle, {
     el.addEventListener('mouseup', onMouseUp)
     el.addEventListener('touchend', onTouchEnd)
     el.addEventListener('contextmenu', onCtx)
+    const onPasteCapture = (e: ClipboardEvent) => {
+      if (!e.clipboardData?.items) return
+      const files: File[] = []
+      for (let i = 0; i < e.clipboardData.items.length; i++) {
+        if (e.clipboardData.items[i].type.startsWith('image/')) {
+          const f = e.clipboardData.items[i].getAsFile()
+          if (f) files.push(f)
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault()
+        e.stopPropagation()
+        onImagePaste?.(files)
+      }
+    }
+    el.addEventListener('paste', onPasteCapture, { capture: true })
 
     connect()
 
@@ -228,6 +253,7 @@ const Term = forwardRef<TermHandle, {
       el.removeEventListener('mouseup', onMouseUp)
       el.removeEventListener('touchend', onTouchEnd)
       el.removeEventListener('contextmenu', onCtx)
+      el.removeEventListener('paste', onPasteCapture, { capture: true } as any)
       dataDisp.dispose()
       try { wsRef.current?.close() } catch {}
       term.dispose()

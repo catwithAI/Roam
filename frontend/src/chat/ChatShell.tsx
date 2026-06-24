@@ -2,7 +2,7 @@
 // Claude、Codex 共用，差异只在 title、accent、占位文案与消息渲染(renderMessage)。
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Input, App as AntApp } from 'antd'
-import { api, upload } from '../api'
+import { api, upload, makeClipboardImageFile } from '../api'
 import FileBrowser from '../FileBrowser'
 import FloatingFileDrawer from '../FloatingFileDrawer'
 import { PromptPanel, detectPrompt } from '../prompt'
@@ -56,6 +56,32 @@ export function ChatShell({ name, dir, accent, title, placeholder, onBack, onRef
       message.success(t('chat.uploadedFiles', { count: names.length, dir }))
     } catch (e: any) { message.error(t('chat.uploadFailed', { message: e.message })) }
     finally { setUploading(false) }
+  }
+
+  const onPaste = async (e: React.ClipboardEvent) => {
+    if (!e.clipboardData?.items) return
+    const imageFiles: File[] = []
+    for (let i = 0; i < e.clipboardData.items.length; i++) {
+      const item = e.clipboardData.items[i]
+      if (item.type.startsWith('image/')) {
+        const f = item.getAsFile()
+        if (f) imageFiles.push(makeClipboardImageFile(f, item.type, imageFiles.length))
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault()
+      if (uploading) return
+      setUploading(true)
+      try {
+        const res = await upload('/tmp', imageFiles)
+        setInput((v) => (v ? v.replace(/\s*$/, ' ') : '') + res.saved.join(' ') + ' ')
+        message.success(t('chat.uploadedFiles', { count: imageFiles.length, dir: '/tmp' }))
+      } catch (err: any) {
+        message.error(t('chat.uploadFailed', { message: err.message }))
+      } finally {
+        setUploading(false)
+      }
+    }
   }
 
   const hidden = Math.max(0, messages.length - limit)
@@ -153,6 +179,7 @@ export function ChatShell({ name, dir, accent, title, placeholder, onBack, onRef
             value={input} onChange={(e) => setInput(e.target.value)}
             autoSize={{ minRows: 1, maxRows: 5 }} placeholder={placeholder}
             onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); send() } }}
+            onPaste={onPaste}
           />
           {busy && <Button danger title={t('chat.stopTitle')} onClick={stop}>{t('chat.stop')}</Button>}
           <Button type="primary" loading={sending} onClick={send} style={{ background: accent, borderColor: accent }}>{t('common.send')}</Button>

@@ -9,7 +9,7 @@ import {
   Statistic, Row, Col, Space, Popconfirm, Empty, Modal, Grid, App as AntApp, Typography, Spin, Tooltip, Dropdown, Checkbox, Progress, AutoComplete, Radio,
 } from 'antd'
 import { QRCodeSVG } from 'qrcode.react'
-import { api, setUnauthorizedHandler } from './api'
+import { api, upload, makeClipboardImageFile, setUnauthorizedHandler } from './api'
 import Term, { TermHandle, TermStatus } from './Terminal'
 import ClaudeChat from './ClaudeChat'
 import CodexChat from './CodexChat'
@@ -643,8 +643,38 @@ function TerminalPane(props: {
     setPasteText('')
     setPasteOpen(true)
   }
+  const pasteImage = async (session: string, rawFiles: File[]) => {
+    const files = rawFiles.map((f, i) => makeClipboardImageFile(f, f.type, i))
+    message.loading({ content: t('terminal.imageUploading'), key: 'img-paste', duration: 0 })
+    try {
+      const res = await upload('/tmp', files)
+      sendPaste(session, res.saved.join(' '))
+      message.success({ content: t('terminal.imagePasted', { count: files.length }), key: 'img-paste' })
+    } catch (e: any) {
+      message.error({ content: t('terminal.imageUploadFailed', { message: e.message }), key: 'img-paste' })
+    }
+  }
   const pasteClipboard = async (session: string) => {
     try {
+      if (navigator.clipboard?.read) {
+        try {
+          const items = await navigator.clipboard.read()
+          const imageFiles: File[] = []
+          let text = ''
+          for (const item of items) {
+            for (const type of item.types) {
+              if (type.startsWith('image/')) {
+                const blob = await item.getType(type)
+                imageFiles.push(new File([blob], 'image', { type }))
+              } else if (type === 'text/plain') {
+                text = await (await item.getType(type)).text()
+              }
+            }
+          }
+          if (imageFiles.length > 0) { pasteImage(session, imageFiles); return }
+          if (text) { sendPaste(session, text); return }
+        } catch { /* clipboard.read() failed — fall through to readText */ }
+      }
       const text = await navigator.clipboard.readText()
       if (text) sendPaste(session, text)
       else openManualPaste(session)
@@ -845,7 +875,8 @@ function TerminalPane(props: {
               <Term ref={(h) => { termRefs.current[termName] = h }} name={termName} fontSize={fontSize} active={termName === active} onStatus={(s) => setStatus(termName, s)}
                 onContextMenu={({ x, y, selection }) => { setActive(termName); setCtx({ x, y, session: termName, selection }) }}
                 onSelectionMenu={({ selection }) => { setActive(termName); setCtx(null); if (selection.trim()) { copyText(selection); message.success(t('common.copied')) } }}
-                onPaste={() => { setActive(termName); pasteClipboard(termName) }} />
+                onPaste={() => { setActive(termName); pasteClipboard(termName) }}
+                onImagePaste={(files) => { setActive(termName); pasteImage(termName, files) }} />
               {claudeView[termName] && claudeMap[termName]?.running && (
                 <div style={{ position: 'absolute', inset: 0 }}>
                   <ClaudeChat name={termName} file={claudeMap[termName].file} dir={claudeMap[termName].dir} onBack={() => setClaudeView((v) => ({ ...v, [termName]: false }))} />

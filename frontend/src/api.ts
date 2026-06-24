@@ -41,6 +41,17 @@ export async function upload(dir: string, files: FileList | File[]): Promise<{ d
   return data.data
 }
 
+// 从剪贴板 Blob 创建带时间戳文件名的 File，用于粘贴图片后上传。
+export function makeClipboardImageFile(blob: Blob, mime: string, index: number): File {
+  const sub = mime.split('/')[1] || 'png'
+  const ext = sub === 'jpeg' ? 'jpg' : sub === 'svg+xml' ? 'svg' : sub
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  const suffix = index > 0 ? `-${index + 1}` : ''
+  return new File([blob], `clipboard-${ts}${suffix}.${ext}`, { type: mime })
+}
+
 // 上传录音(WAV)做语音识别，返回识别出的文本。服务商与密钥由后端配置。
 export async function transcribe(audio: Blob): Promise<string> {
   const form = new FormData()
