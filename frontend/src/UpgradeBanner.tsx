@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Modal, Tag, List, Spin } from 'antd'
+import { Button, Modal, Tag, List, Spin, App as AntApp } from 'antd'
 import { api } from './api'
 import { useI18n } from './i18n'
 
@@ -15,6 +15,7 @@ export default function UpgradeBanner() {
   const [open, setOpen] = useState(false)
   const [phase, setPhase] = useState<'idle' | 'pulling' | 'restarting'>('idle')
   const { t } = useI18n()
+  const { message } = AntApp.useApp()
 
   useEffect(() => {
     let stop = false
@@ -61,8 +62,9 @@ export default function UpgradeBanner() {
         } catch {}
       }, 2000)
       setTimeout(() => clearInterval(poll), 120_000)
-    } catch {
+    } catch (e: any) {
       setPhase('idle')
+      message.error(t('upgrade.failed', { message: e.message || 'unknown error' }))
     }
   }
 

@@ -9,11 +9,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+var upgradeMu sync.Mutex
 
 func repoRoot() (string, error) {
 	dir, err := os.Getwd()
@@ -101,6 +104,12 @@ func runBuild(ctx context.Context, dir, name string, args ...string) (string, er
 
 // UpgradeApply POST /upgrade/apply — pull, build, then restart.
 func (a *API) UpgradeApply(c *gin.Context) {
+	if !upgradeMu.TryLock() {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "UPGRADE_IN_PROGRESS", "message": "another upgrade is already running"}})
+		return
+	}
+	defer upgradeMu.Unlock()
+
 	root, err := repoRoot()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "NOT_GIT_REPO"}})
@@ -118,11 +127,9 @@ func (a *API) UpgradeApply(c *gin.Context) {
 
 	// 2. build frontend
 	feDir := filepath.Join(root, "frontend")
-	if _, err := os.Stat(filepath.Join(feDir, "node_modules")); os.IsNotExist(err) {
-		if out, err := runBuild(ctx, feDir, "npm", "install"); err != nil {
-			gitFail(c, "UPGRADE_NPM_INSTALL_FAILED", out, err)
-			return
-		}
+	if out, err := runBuild(ctx, feDir, "npm", "install"); err != nil {
+		gitFail(c, "UPGRADE_NPM_INSTALL_FAILED", out, err)
+		return
 	}
 	if out, err := runBuild(ctx, feDir, "npx", "vite", "build"); err != nil {
 		gitFail(c, "UPGRADE_FRONTEND_BUILD_FAILED", out, err)

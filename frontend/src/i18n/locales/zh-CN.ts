@@ -176,6 +176,7 @@ const zhCN = {
   'upgrade.confirm': '确认升级',
   'upgrade.upgrading': '正在升级…',
   'upgrade.reconnecting': '正在等待服务重启…',
+  'upgrade.failed': '升级失败：{message}',
   'file.openedInAgent': '已在 {agent} 中打开',
   'file.openFailed': '打开失败：{message}',
   'file.downloadFile': '下载文件',

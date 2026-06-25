@@ -176,6 +176,7 @@ const enUS = {
   'upgrade.confirm': 'Confirm upgrade',
   'upgrade.upgrading': 'Upgrading…',
   'upgrade.reconnecting': 'Waiting for server to restart…',
+  'upgrade.failed': 'Upgrade failed: {message}',
   'file.openedInAgent': 'Opened in {agent}',
   'file.openFailed': 'Open failed: {message}',
   'file.downloadFile': 'Download file',
