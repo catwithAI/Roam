@@ -30,6 +30,9 @@ var CDPBase = envOr("TTMUX_CHROME_CDP", "http://127.0.0.1:9222")
 var (
 	procMu sync.Mutex
 	chrome *exec.Cmd
+
+	launchMu   sync.Mutex // 串行化拉起，避免并发/轮询同时各拉一个
+	lastLaunch time.Time  // 上次拉起时刻，做冷却防抖（端口没起来时别每次轮询都重开）
 )
 
 func envOr(k, d string) string {
@@ -70,10 +73,32 @@ type target struct {
 }
 
 // ensureChrome 确保调试端口可用；不可用则尝试拉起一个 Chrome。
+// 关键：串行 + 冷却 + 不重复拉起。否则在 macOS 上若拉起的 Chrome 没能在 9222 就绪，
+// 每次 /browser/tabs 轮询(3s)都会再拉一个；而同 user-data-dir 的 Chrome 是单例，
+// 第二个会把 about:blank 转发给已有实例后退出 → 表现为「不停弹 about:blank 窗口」。
 func ensureChrome() error {
 	if alive() {
 		return nil
 	}
+	launchMu.Lock()
+	defer launchMu.Unlock()
+	if alive() { // 双检：等锁期间别的协程可能已拉起就绪
+		return nil
+	}
+	// 已有本进程拉起的 Chrome 仍在运行，或刚拉起过(冷却内)：不再开新的，给端口一点时间起来。
+	procMu.Lock()
+	running := chrome != nil && chrome.Process != nil
+	procMu.Unlock()
+	if running || time.Since(lastLaunch) < 12*time.Second {
+		for i := 0; i < 30; i++ {
+			if alive() {
+				return nil
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		return fmt.Errorf("Chrome 启动中或上次未就绪，调试端口 %s 暂未就绪", CDPBase)
+	}
+
 	cfg := effectiveConfig() // Settings 里存的值 > env > 默认
 	args := []string{
 		"--remote-debugging-port=9222",
@@ -110,10 +135,20 @@ func ensureChrome() error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("拉起 Chrome 失败: %w", err)
 	}
+	lastLaunch = time.Now()
 	procMu.Lock()
 	chrome = cmd
 	procMu.Unlock()
-	go cmd.Wait()             // 收尸，避免 Chrome 自行退出后留下僵尸
+	// 收尸 + 退出即清空 chrome：让「chrome != nil」可靠表示「我们拉起的实例仍在运行」，
+	// 进程退出后不再被误判为「还在跑」而长期不重拉。
+	go func() {
+		_ = cmd.Wait()
+		procMu.Lock()
+		if chrome == cmd {
+			chrome = nil
+		}
+		procMu.Unlock()
+	}()
 	for i := 0; i < 50; i++ { // 最多等 5s
 		if alive() {
 			return nil
