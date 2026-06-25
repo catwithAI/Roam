@@ -77,6 +77,13 @@ func (a *API) FS(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "parent": filepath.Dir(p), "dirs": dirs}})
 }
 
+// sanitizeSessionName 把 tmux 不允许出现在会话名中的字符替换掉。
+// tmux 自身会把 '.' 和 ':' 替换为 '_'，这里提前做同样的事，
+// 避免后续 -t 引用时 '.' 被解析为 session.window.pane 分隔符而报错。
+func sanitizeSessionName(name string) string {
+	return strings.NewReplacer(".", "_", ":", "_").Replace(name)
+}
+
 // Sessions
 func (a *API) Sessions(c *gin.Context) { a.json(c, "ls", "--json") }
 func (a *API) NewSession(c *gin.Context) {
@@ -88,12 +95,18 @@ func (a *API) NewSession(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST"}})
 		return
 	}
+	b.Name = sanitizeSessionName(b.Name)
 	// 创建 detached 会话（转发给 tmux），可指定工作目录 -c
 	args := []string{"new-session", "-d", "-s", b.Name}
 	if strings.TrimSpace(b.Dir) != "" {
 		args = append(args, "-c", b.Dir)
 	}
-	a.text(c, args...)
+	out, err := a.TT.Run(args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "TTMUX_ERROR", "message": ttmux.StripANSI(out)}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": ttmux.StripANSI(out), "name": b.Name})
 }
 
 func (a *API) RenameSession(c *gin.Context) {
@@ -105,7 +118,7 @@ func (a *API) RenameSession(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST"}})
 		return
 	}
-	newName := strings.TrimSpace(b.Name)
+	newName := sanitizeSessionName(strings.TrimSpace(b.Name))
 	if oldName == "" || newName == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST"}})
 		return
@@ -114,7 +127,12 @@ func (a *API) RenameSession(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"data": gin.H{"name": newName}})
 		return
 	}
-	a.text(c, "rename-session", "-t", oldName, newName)
+	out, err := a.TT.Run("rename-session", "-t", oldName, newName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "TTMUX_ERROR", "message": ttmux.StripANSI(out)}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"name": newName}})
 }
 
 // 用 tmux kill-session（转发），避开 ttmux kill 的交互式 y/N 确认（后端无 tty）
