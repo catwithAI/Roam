@@ -133,10 +133,11 @@ function FilesPage({ openTerm }: { openTerm: (name: string) => void }) {
     const prompt = `请打开并查看这个文件：${file}`
     const cmd = `${kind === 'claude' ? 'claude' : 'codex'} ${shellQuote(prompt)}`
     try {
-      await api('POST', '/sessions', { name, dir })
-      await api('POST', '/tasks/_/send', { sess: name, msg: cmd })
+      const res = await api('POST', '/sessions', { name, dir })
+      const actual = res.name || name
+      await api('POST', '/tasks/_/send', { sess: actual, msg: cmd })
       message.success(t('file.openedInAgent', { agent: kind === 'claude' ? 'Claude Code' : 'Codex' }))
-      openTerm(name)
+      openTerm(actual)
     } catch (e: any) {
       message.error(t('file.openFailed', { message: e.message }))
     }
@@ -277,6 +278,15 @@ export default function App() {
   const dockPageWidth = tab === 'sessions' || tab === 'overview' || tab === 'swarm' || tab === 'settings' ? 420 : 300
   const setStatus = (name: string, s: TermStatus) => setStatusMap((m) => ({ ...m, [name]: s }))
   const sendKey = (seq: string) => active && termRefs.current[active]?.send(seq)
+
+  // ponytail: dock 展开/收缩/最大化后，等 CSS transition 结束再 fit 活动终端，
+  // 否则 xterm 在动画中途拿到的尺寸不准，终端显示不完整（Issue #11）。
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (active) termRefs.current[active]?.fit()
+    }, 250) // 略长于 transition: .2s
+    return () => clearTimeout(timer)
+  }, [dockOpen, dockMax])
 
   // 全屏切换（标准 API + webkit 兜底）。不支持的浏览器（如 iOS Safari）隐藏按钮，改走「添加到主屏幕」
   const docEl: any = document.documentElement
@@ -1156,9 +1166,10 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
   const ok = async () => {
     if (!name.trim()) return message.error(t('session.nameRequired'))
     try {
-      await api('POST', '/sessions', { name: name.trim(), dir: dir.trim() })
-      if (agent !== 'none') await api('POST', '/tasks/_/send', { sess: name.trim(), msg: agent })
-      pushRecentDir(dir); message.success(t('session.created')); onClose(); onDone(name.trim())
+      const res = await api('POST', '/sessions', { name: name.trim(), dir: dir.trim() })
+      const actual = res.name || name.trim()
+      if (agent !== 'none') await api('POST', '/tasks/_/send', { sess: actual, msg: agent })
+      pushRecentDir(dir); message.success(t('session.created')); onClose(); onDone(actual)
     }
     catch (e: any) { message.error(e.message) }
   }
@@ -1196,10 +1207,11 @@ function RenameSessionModal({ session, onClose, onDone }: { session: string | nu
     const next = name.trim()
     if (!next) return message.error(t('session.nameRequired'))
     try {
-      await api('PATCH', `/sessions/${encodeURIComponent(session)}`, { name: next })
+      const res = await api('PATCH', `/sessions/${encodeURIComponent(session)}`, { name: next })
+      const actual = res.data?.name || next
       message.success(t('session.renamed'))
       onClose()
-      onDone(session, next)
+      onDone(session, actual)
     } catch (e: any) {
       message.error(e.message)
     }
