@@ -1481,8 +1481,8 @@ function AgentCommandsCard() {
   return (
     <Card title={t('settings.agentCommands')}>
       <Space direction="vertical" size="small" style={{ width: '100%', maxWidth: 520 }}>
-        <Input addonBefore="Claude" value={claudeCmd} onChange={(e) => setClaudeCmd(e.target.value)} placeholder="claude" />
-        <Input addonBefore="Codex" value={codexCmd} onChange={(e) => setCodexCmd(e.target.value)} placeholder="codex" />
+        <Input addonBefore="Claude" value={claudeCmd} onChange={(e) => setClaudeCmd(e.target.value)} />
+        <Input addonBefore="Codex" value={codexCmd} onChange={(e) => setCodexCmd(e.target.value)} />
         <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('settings.agentCommandsHelp')}</span>
         <Button type="primary" onClick={save}>{t('settings.save')}</Button>
       </Space>
