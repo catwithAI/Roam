@@ -533,6 +533,19 @@ const zhCN = {
   'settings.volcanoEndpoint': '接口地址',
   'settings.speechSaved': '语音设置已保存',
   'settings.save': '保存',
+  'settings.browser': '浏览器 (Chrome)',
+  'settings.browserHelp': '镜像 Chrome 的启动参数。下次拉起时生效——点「重启 Chrome」立即应用（会断开当前镜像会话）。',
+  'settings.browserWindow': '窗口尺寸',
+  'settings.browserFullscreen': '宿主机全屏',
+  'settings.browserFullscreenHelp': '仅对有显示器(headful)生效；无头模式用上面的窗口尺寸。',
+  'settings.browserScale': '设备缩放',
+  'settings.browserProfile': '用户数据目录',
+  'settings.browserProfileHelp': '默认是隔离的临时 profile（不带已有登录/cookie/扩展）。指到真实 Chrome profile 可复用登录态，但需先完全退出那台 Chrome（同一 profile 不能被两个实例占用）。',
+  'settings.browserBin': 'Chrome 路径',
+  'settings.browserSaved': '浏览器设置已保存',
+  'settings.browserRelaunch': '重启 Chrome',
+  'settings.browserRelaunched': 'Chrome 已重启',
+  'settings.browserAttached': '当前附着的是外部 Chrome —— 请先退出它再重启以生效',
 }
 
 export default zhCN

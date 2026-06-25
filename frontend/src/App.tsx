@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Layout, Menu, Button, Card, List, Tag, Form, Input, Select, Segmented,
-  Statistic, Row, Col, Space, Popconfirm, Empty, Modal, Grid, App as AntApp, Typography, Spin, Tooltip, Dropdown, Checkbox, Progress, AutoComplete, Radio,
+  Statistic, Row, Col, Space, Popconfirm, Empty, Modal, Grid, App as AntApp, Typography, Spin, Tooltip, Dropdown, Checkbox, Progress, AutoComplete, Radio, Switch,
 } from 'antd'
 import { QRCodeSVG } from 'qrcode.react'
 import { api, setUnauthorizedHandler } from './api'
@@ -1469,6 +1469,7 @@ function EnvPage() {
         </Space>
       </Card>
       <SpeechCard />
+      <BrowserCard />
       <Card title={t('install.settingsTitle')}>
         <Space align="center" wrap>
           {pwaInstalled
@@ -1565,6 +1566,57 @@ function SpeechCard() {
           </Space>
         )}
         <Button type="primary" loading={saving} onClick={save}>{t('settings.save')}</Button>
+      </Space>
+    </Card>
+  )
+}
+
+// ── Chrome(浏览器镜像)启动配置：屏幕尺寸/全屏/缩放/profile(data-dir)/可执行路径，
+//    持久化到后端 browser-config.json；保存后点「重启 Chrome」按新参数重新拉起 ──
+function BrowserCard() {
+  const { message } = AntApp.useApp()
+  const { t } = useI18n()
+  const [cfg, setCfg] = useState<any>({ windowSize: '1920,1080', fullscreen: true, scale: '2', profile: '/tmp/ttmux-chrome', bin: '' })
+  const [saving, setSaving] = useState(false)
+  const [relaunching, setRelaunching] = useState(false)
+  useEffect(() => { api('GET', '/browser/config').then((r) => { if (r?.data) setCfg(r.data) }).catch(() => {}) }, [])
+  const set = (k: string, v: any) => setCfg((c: any) => ({ ...c, [k]: v }))
+  const save = async () => {
+    setSaving(true)
+    try { await api('PUT', '/browser/config', cfg); message.success(t('settings.browserSaved')) }
+    catch (e: any) { message.error(e.message) }
+    finally { setSaving(false) }
+  }
+  const relaunch = async () => {
+    setRelaunching(true)
+    try {
+      await api('PUT', '/browser/config', cfg) // 先存再重启，省一步
+      const r = await api('POST', '/browser/relaunch')
+      if (r?.data?.attached) message.warning(t('settings.browserAttached'))
+      else message.success(t('settings.browserRelaunched'))
+    } catch (e: any) { message.error(e.message) }
+    finally { setRelaunching(false) }
+  }
+  return (
+    <Card title={t('settings.browser')}>
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('settings.browserHelp')}</span>
+        <Space direction="vertical" size="small" style={{ width: '100%', maxWidth: 560 }}>
+          <Input addonBefore={t('settings.browserWindow')} value={cfg.windowSize} placeholder="1920,1080" onChange={(e) => set('windowSize', e.target.value)} />
+          <Space align="center">
+            <Switch checked={!!cfg.fullscreen} onChange={(v) => set('fullscreen', v)} />
+            <span>{t('settings.browserFullscreen')}</span>
+            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('settings.browserFullscreenHelp')}</span>
+          </Space>
+          <Input addonBefore={t('settings.browserScale')} value={cfg.scale} placeholder="2" onChange={(e) => set('scale', e.target.value)} />
+          <Input addonBefore={t('settings.browserProfile')} value={cfg.profile} placeholder="/tmp/ttmux-chrome" onChange={(e) => set('profile', e.target.value)} />
+          <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('settings.browserProfileHelp')}</span>
+          <Input addonBefore={t('settings.browserBin')} value={cfg.bin} placeholder={t('common.optional')} onChange={(e) => set('bin', e.target.value)} />
+        </Space>
+        <Space>
+          <Button type="primary" loading={saving} onClick={save}>{t('settings.save')}</Button>
+          <Button loading={relaunching} onClick={relaunch}>{t('settings.browserRelaunch')}</Button>
+        </Space>
       </Space>
     </Card>
   )

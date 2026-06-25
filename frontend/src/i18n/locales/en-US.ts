@@ -533,6 +533,19 @@ const enUS = {
   'settings.volcanoEndpoint': 'Endpoint',
   'settings.speechSaved': 'Voice settings saved',
   'settings.save': 'Save',
+  'settings.browser': 'Browser (Chrome)',
+  'settings.browserHelp': 'Launch options for the mirrored Chrome. Takes effect on next launch — click Relaunch Chrome to apply now (drops the current mirror session).',
+  'settings.browserWindow': 'Window size',
+  'settings.browserFullscreen': 'Fullscreen on host',
+  'settings.browserFullscreenHelp': 'Headful (host with a display) only; headless uses the window size above.',
+  'settings.browserScale': 'Device scale',
+  'settings.browserProfile': 'User data dir',
+  'settings.browserProfileHelp': 'Default is an isolated temp profile (no existing logins/cookies/extensions). Point it at a real Chrome profile to reuse logins, but fully quit that Chrome first (a profile cannot be used by two instances).',
+  'settings.browserBin': 'Chrome path',
+  'settings.browserSaved': 'Browser settings saved',
+  'settings.browserRelaunch': 'Relaunch Chrome',
+  'settings.browserRelaunched': 'Chrome relaunched',
+  'settings.browserAttached': 'Attached to an external Chrome — quit it first, then relaunch to apply',
 }
 
 export default enUS

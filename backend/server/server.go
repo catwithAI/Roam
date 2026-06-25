@@ -47,6 +47,7 @@ func New(cfg Config) *gin.Engine {
 	tt := ttmux.New(cfg.TTmuxBin)
 	a := auth.New(cfg.Password, cfg.TOTPSecret, cfg.TOTPState, cfg.LockAfter, cfg.LockSecs)
 	h := api.New(tt, cfg.BrowserHome, cfg.DataDir)
+	browser.InitConfig(cfg.DataDir) // Chrome 启动配置持久化到 dataDir
 	hub := stream.New(tt, cfg.LogsDir)
 
 	// 公开端点
@@ -161,6 +162,9 @@ func New(cfg Config) *gin.Engine {
 		g.POST("/browser/tabs/:id/activate", browser.TabActivate) // 在 Chrome 里前置
 		g.POST("/browser/tabs/:id/navigate", browser.TabNavigate) // 导航到 URL
 		g.Any("/browser/cdp/*path", browser.DevToolsProxy)        // 反代 Chrome 自带 DevTools(F12) + CDP ws
+		g.GET("/browser/config", browser.GetConfig)               // Chrome 启动配置：读
+		g.PUT("/browser/config", browser.SetConfig)               // Chrome 启动配置：存
+		g.POST("/browser/relaunch", browser.Relaunch)             // 按新配置重启 Chrome
 		g.GET("/stream/status", hub.Status)
 		g.GET("/logs/:name", hub.Logs)
 	}
