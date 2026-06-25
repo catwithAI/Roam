@@ -86,10 +86,9 @@ func Handler(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	// 关闭该会话的 tmux 鼠标模式：让鼠标拖动直接成为 xterm 本地选区（松开自动复制 / Ctrl+C 复制），
-	// 右键也只弹前端菜单，不再被转发给 tmux 多弹一个菜单。
-	// 代价：点击切换窗格 / 拖边框调大小失效；滚轮翻历史由前端单独拦截处理，不受影响。
-	_ = exec.Command("tmux", "set-option", "-t", name, "mouse", "off").Run()
+	// Web 终端默认开启 tmux 鼠标模式：左键点击/拖拽交给 tmux，支持点击切换窗格和拖动窗格边框。
+	// 前端仍会捕获右键和滚轮，分别用于 Roam 菜单与 copy-mode 历史滚动，避免重复触发 tmux 菜单/滚动。
+	_ = exec.Command("tmux", "set-option", "-t", name, "mouse", "on").Run()
 
 	// 窗口尺寸跟随「最近活跃的客户端」，而非被所有 attach 客户端里最小的那个限制。
 	// 同一会话被多处 attach（网页多标签 / 手机+桌面 / CLI）时，默认会缩到最小客户端，

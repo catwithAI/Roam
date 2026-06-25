@@ -1615,14 +1615,14 @@ function BrowserCard() {
           <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('settings.browserModeHelp')}</span>
         </Space>
         <Space direction="vertical" size="small" style={{ width: '100%', maxWidth: 560 }}>
-          <Input addonBefore={t('settings.browserWindow')} value={cfg.windowSize} placeholder="1920,1080" onChange={(e) => set('windowSize', e.target.value)} />
+          <Input addonBefore={t('settings.browserWindow')} value={cfg.windowSize} placeholder={t('settings.browserWindowPlaceholder')} onChange={(e) => set('windowSize', e.target.value)} />
           <Space align="center">
             <Switch checked={!!cfg.fullscreen} onChange={(v) => set('fullscreen', v)} />
             <span>{t('settings.browserFullscreen')}</span>
             <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('settings.browserFullscreenHelp')}</span>
           </Space>
-          <Input addonBefore={t('settings.browserScale')} value={cfg.scale} placeholder="2" onChange={(e) => set('scale', e.target.value)} />
-          <Input addonBefore={t('settings.browserProfile')} value={cfg.profile} placeholder="/tmp/ttmux-chrome" onChange={(e) => set('profile', e.target.value)} />
+          <Input addonBefore={t('settings.browserScale')} value={cfg.scale} placeholder={t('settings.browserScalePlaceholder')} onChange={(e) => set('scale', e.target.value)} />
+          <Input addonBefore={t('settings.browserProfile')} value={cfg.profile} placeholder={t('settings.browserProfilePlaceholder')} onChange={(e) => set('profile', e.target.value)} />
           <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('settings.browserProfileHelp')}</span>
           <Input addonBefore={t('settings.browserBin')} value={cfg.bin} placeholder={t('common.optional')} onChange={(e) => set('bin', e.target.value)} />
         </Space>
