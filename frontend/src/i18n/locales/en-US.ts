@@ -21,6 +21,7 @@ const enUS = {
   'common.exitFullscreen': 'Exit fullscreen',
   'common.expand': 'Expand',
   'common.collapse': 'Collapse',
+  'common.dragToResize': 'Drag to resize',
   'common.restore': 'Restore',
   'common.extend': 'Extend',
   'common.failed': 'Failed',

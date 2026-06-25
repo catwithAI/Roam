@@ -21,6 +21,7 @@ const zhCN = {
   'common.exitFullscreen': '退出全屏',
   'common.expand': '展开',
   'common.collapse': '收起',
+  'common.dragToResize': '拖拽调整宽度',
   'common.restore': '还原',
   'common.extend': '扩展',
   'common.failed': '失败',

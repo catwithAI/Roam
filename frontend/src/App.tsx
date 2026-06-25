@@ -185,6 +185,8 @@ export default function App() {
   const [overlay, setOverlay] = useState(false) // 手机/平板全屏终端
   const [dockOpen, setDockOpen] = useState(true) // 桌面：右侧终端停靠栏是否展开
   const [dockMax, setDockMax] = useState(false)  // 桌面：终端栏向左扩展（遮住会话列表）
+  const [customDockWidth, setCustomDockWidth] = useState<number | null>(null)
+  const resizing = useRef(false)
   const [fontSize, setFontSize] = useState(13)
   const [statusMap, setStatusMap] = useState<Record<string, TermStatus>>({})
   const termRefs = useRef<Record<string, TermHandle | null>>({})
@@ -278,7 +280,8 @@ export default function App() {
   }
   const anyClaude = terms.some((t) => claudeMap[t]?.running || codexMap[t]?.running)
   const docked = hasSider && terms.length > 0 && dockOpen // 桌面停靠栏已展开
-  const dockPageWidth = tab === 'sessions' || tab === 'overview' || tab === 'swarm' || tab === 'settings' ? 420 : 300
+  const defaultDockWidth = tab === 'sessions' || tab === 'overview' || tab === 'swarm' || tab === 'settings' ? 420 : 300
+  const dockPageWidth = customDockWidth ?? defaultDockWidth
   const setStatus = (name: string, s: TermStatus) => setStatusMap((m) => ({ ...m, [name]: s }))
   const sendKey = (seq: string) => active && termRefs.current[active]?.send(seq)
 
@@ -354,24 +357,21 @@ export default function App() {
               )}
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>{menu}</div>
-            {/* 底部：全屏 + 折叠 + 退出，始终竖向堆叠（安装到桌面只放在设置页）*/}
-            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: 8, display: 'flex', flexDirection: collapsed ? 'column' : 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
               {fsSupported && (
-                <Button type="text" block onClick={toggleFs} style={{ color: 'var(--text-dim)', textAlign: collapsed ? 'center' : 'left' }}
-                  title={isFs ? t('common.exitFullscreen') : t('common.fullscreen')}>
-                  {collapsed ? fsIcon : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{fsIcon}{isFs ? t('common.exitFullscreen') : t('common.fullscreen')}</span>}
-                </Button>
+                <Tooltip title={isFs ? t('common.exitFullscreen') : t('common.fullscreen')} placement="top">
+                  <Button type="text" onClick={toggleFs} style={{ color: 'var(--text-dim)' }} icon={fsIcon} />
+                </Tooltip>
               )}
-              <Button type="text" block onClick={() => setCollapsed((c) => !c)} style={{ color: 'var(--text-dim)' }}
-                title={collapsed ? t('common.expand') : t('common.collapse')}>
-                {svg(collapsed
-                  ? <><polyline points="9 6 15 12 9 18" /></>
-                  : <><polyline points="15 6 9 12 15 18" /></>)}
-              </Button>
+              <Tooltip title={collapsed ? t('common.expand') : t('common.collapse')} placement="top">
+                <Button type="text" onClick={() => setCollapsed((c) => !c)} style={{ color: 'var(--text-dim)' }}
+                  icon={svg(collapsed ? <><polyline points="9 6 15 12 9 18" /></> : <><polyline points="15 6 9 12 15 18" /></>)} />
+              </Tooltip>
               <Popconfirm title={t('common.logoutConfirm')} okText={t('common.logout')} cancelText={t('common.cancel')} onConfirm={logout} placement="topRight">
-                <Button type="text" block style={{ color: 'var(--text-dim)', textAlign: collapsed ? 'center' : 'left' }} title={t('common.logout')}>
-                  {collapsed ? svg(<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></>) : t('common.logout')}
-                </Button>
+                <Tooltip title={t('common.logout')} placement="top">
+                  <Button type="text" style={{ color: 'var(--text-dim)' }}
+                    icon={svg(<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></>)} />
+                </Tooltip>
               </Popconfirm>
             </div>
           </div>
@@ -387,43 +387,63 @@ export default function App() {
             width: docked && tab !== 'browser' && tab !== 'files' ? (dockMax ? 0 : dockPageWidth) : 'auto', minWidth: 0,
             height: '100dvh', overflow: tab === 'browser' || tab === 'files' ? 'hidden' : 'auto',
             padding: 0,
-            transition: 'flex-basis .2s, width .2s',
+            transition: customDockWidth != null ? 'none' : 'flex-basis .2s, width .2s',
           }}>
             {pageNode}
           </Content>
 
-          {/* 角标把手：上半=向左扩展（关→开→遮住会话列表），下半=向右收起；都带图标+文字 */}
+          {/* 拖拽把手 + 展开/收起按钮 */}
           {hasSider && terms.length > 0 && (
             <div style={{
               flex: '0 0 22px', background: 'var(--bg-container)', borderLeft: '1px solid var(--border)',
               display: 'flex', flexDirection: 'column', color: anyClaude ? '#58a6ff' : 'var(--text-dim)', userSelect: 'none',
             }}>
-              {/* 上半：向左扩展 */}
-              <div onClick={() => (dockOpen ? setDockMax(true) : setDockOpen(true))}
-                title={!dockOpen ? t('terminal.expandTitle') : t('terminal.expandLeftTitle')}
-                style={{
-                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 5,
-                  borderBottom: '1px solid var(--border)', cursor: dockMax ? 'default' : 'pointer', opacity: dockMax ? 0.3 : 1,
-                }}>
-                {/* 双箭头向左 = 扩展/展开面板 */}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M13 6 L7 12 L13 18" /><path d="M18 6 L12 12 L18 18" />
+              {/* 中间：拖拽调整宽度 */}
+              <div
+                style={{ flex: 1, cursor: 'col-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title={t('common.dragToResize') || 'Drag to resize'}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  resizing.current = true
+                  const siderWidth = collapsed ? 64 : 208
+                  const startX = e.clientX
+                  const startW = dockPageWidth
+                  const onMove = (ev: MouseEvent) => {
+                    if (!resizing.current) return
+                    const delta = ev.clientX - startX
+                    const next = Math.max(280, Math.min(window.innerWidth - siderWidth - 200, startW + delta))
+                    setCustomDockWidth(next)
+                  }
+                  const onUp = () => { resizing.current = false; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+                  window.addEventListener('mousemove', onMove)
+                  window.addEventListener('mouseup', onUp)
+                }}
+              >
+                <svg width="6" height="24" viewBox="0 0 6 24" fill="currentColor" opacity="0.5">
+                  <circle cx="1.5" cy="6" r="1.5" /><circle cx="4.5" cy="6" r="1.5" />
+                  <circle cx="1.5" cy="12" r="1.5" /><circle cx="4.5" cy="12" r="1.5" />
+                  <circle cx="1.5" cy="18" r="1.5" /><circle cx="4.5" cy="18" r="1.5" />
                 </svg>
-                <span style={{ writingMode: 'vertical-rl', letterSpacing: 1, fontSize: 11, fontWeight: 600 }}>{dockOpen ? t('common.extend') : t('common.expand')}</span>
-                <span style={{ fontSize: 10, background: '#1f6feb', color: '#fff', borderRadius: 8, padding: '0 4px', lineHeight: 1.35 }}>{terms.length}</span>
               </div>
-              {/* 下半：向右收起 */}
-              <div onClick={() => (dockMax ? setDockMax(false) : setDockOpen(false))}
-                title={dockMax ? t('terminal.restoreTitle') : t('terminal.collapseRightTitle')}
-                style={{
-                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 5,
-                  cursor: dockOpen ? 'pointer' : 'default', opacity: dockOpen ? 1 : 0.3,
-                }}>
-                {/* 双箭头向右 = 收起/还原面板 */}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M11 6 L17 12 L11 18" /><path d="M6 6 L12 12 L6 18" />
-                </svg>
-                <span style={{ writingMode: 'vertical-rl', letterSpacing: 1, fontSize: 11, fontWeight: 600 }}>{dockMax ? t('common.restore') : t('common.collapse')}</span>
+              {/* 底部按钮区 */}
+              <div style={{ borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '6px 0' }}>
+                <Tooltip title={!dockOpen ? t('terminal.expandTitle') : t('terminal.expandLeftTitle')} placement="left">
+                  <div onClick={() => (dockOpen ? setDockMax(true) : setDockOpen(true))}
+                    style={{ cursor: dockMax ? 'default' : 'pointer', opacity: dockMax ? 0.3 : 1, padding: 4 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M13 6 L7 12 L13 18" /><path d="M18 6 L12 12 L18 18" />
+                    </svg>
+                  </div>
+                </Tooltip>
+                <span style={{ fontSize: 10, background: '#1f6feb', color: '#fff', borderRadius: 8, padding: '0 4px', lineHeight: 1.35 }}>{terms.length}</span>
+                <Tooltip title={dockMax ? t('terminal.restoreTitle') : t('terminal.collapseRightTitle')} placement="left">
+                  <div onClick={() => (dockMax ? setDockMax(false) : setDockOpen(false))}
+                    style={{ cursor: dockOpen ? 'pointer' : 'default', opacity: dockOpen ? 1 : 0.3, padding: 4 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 6 L17 12 L11 18" /><path d="M6 6 L12 12 L6 18" />
+                    </svg>
+                  </div>
+                </Tooltip>
               </div>
             </div>
           )}
@@ -1411,14 +1431,16 @@ function Sessions({ openTerm, closeTerm }: { openTerm: (n: string) => void; clos
         <Input allowClear value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('session.searchPlaceholder')}
           style={{ width: 220, maxWidth: '100%' }}
           prefix={svg(<><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></>)} />
-        <Segmented value={filter} onChange={(v) => setFilter(v as any)} options={[
-          { label: `${t('common.all')} ${cnt('all')}`, value: 'all' },
-          { label: `${t('session.waiting')} ${cnt('waiting')}`, value: 'waiting' },
-          { label: `Claude ${cnt('claude')}`, value: 'claude' },
-          { label: `Codex ${cnt('codex')}`, value: 'codex' },
-          { label: `${t('nav.swarm')} ${cnt('swarm')}`, value: 'swarm' },
-          { label: `${t('terminal.status.idle')} ${cnt('idle')}`, value: 'idle' },
-        ]} />
+        <div style={{ overflowX: 'auto', flex: '1 1 0', minWidth: 0 }}>
+          <Segmented value={filter} onChange={(v) => setFilter(v as any)} size="small" options={[
+            { label: `${t('common.all')} ${cnt('all')}`, value: 'all' },
+            { label: `${t('session.waiting')} ${cnt('waiting')}`, value: 'waiting' },
+            { label: `Claude ${cnt('claude')}`, value: 'claude' },
+            { label: `Codex ${cnt('codex')}`, value: 'codex' },
+            { label: `${t('nav.swarm')} ${cnt('swarm')}`, value: 'swarm' },
+            { label: `${t('terminal.status.idle')} ${cnt('idle')}`, value: 'idle' },
+          ]} />
+        </div>
       </div>
 
       {list.length === 0 ? <Empty description={t('session.noActive')} />
