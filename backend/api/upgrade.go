@@ -90,28 +90,58 @@ func (a *API) UpgradeCheck(c *gin.Context) {
 	}})
 }
 
-// UpgradeApply POST /upgrade/apply — pull latest changes and restart.
+// runBuild 在 dir 下执行构建命令，返回合并的 stdout+stderr。
+func runBuild(ctx context.Context, dir, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Env = os.Environ()
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// UpgradeApply POST /upgrade/apply — pull, build, then restart.
 func (a *API) UpgradeApply(c *gin.Context) {
 	root, err := repoRoot()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "NOT_GIT_REPO"}})
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 	defer cancel()
 
+	// 1. git pull
 	out, err := runGit(ctx, root, "pull")
 	if err != nil {
 		gitFail(c, "UPGRADE_PULL_FAILED", out, err)
 		return
 	}
 
+	// 2. build frontend
+	feDir := filepath.Join(root, "frontend")
+	if _, err := os.Stat(filepath.Join(feDir, "node_modules")); os.IsNotExist(err) {
+		if out, err := runBuild(ctx, feDir, "npm", "install"); err != nil {
+			gitFail(c, "UPGRADE_NPM_INSTALL_FAILED", out, err)
+			return
+		}
+	}
+	if out, err := runBuild(ctx, feDir, "npx", "vite", "build"); err != nil {
+		gitFail(c, "UPGRADE_FRONTEND_BUILD_FAILED", out, err)
+		return
+	}
+
+	// 3. build backend
+	beDir := filepath.Join(root, "backend")
+	if out, err := runBuild(ctx, beDir, "go", "build", "-o", "ttmux-web", "./cmd"); err != nil {
+		gitFail(c, "UPGRADE_BACKEND_BUILD_FAILED", out, err)
+		return
+	}
+
+	// 4. restart
 	startScript := filepath.Join(root, "start.sh")
 	if _, serr := os.Stat(startScript); serr == nil {
 		go func() {
 			time.Sleep(500 * time.Millisecond)
-			// --dev: git pull 后源码已变，必须重新编译前后端
-			cmd := exec.Command("bash", startScript, "--dev")
+			cmd := exec.Command("bash", startScript)
 			cmd.Dir = root
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
