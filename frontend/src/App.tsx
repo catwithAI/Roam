@@ -1426,13 +1426,12 @@ function Sessions({ openTerm, closeTerm }: { openTerm: (n: string) => void; clos
       title={<Space size={8}>{t('nav.sessions')}<Tag style={{ margin: 0 }}>{cnt('all')}</Tag></Space>}
       extra={<Button type="primary" onClick={() => setNewOpen(true)}>+ {t('session.new')}</Button>}
     >
-      {/* 工具条：搜索 + 类型筛选 */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 14 }}>
+      {/* 工具条：搜索 + 类型筛选（两行） */}
+      <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Input allowClear value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('session.searchPlaceholder')}
-          style={{ width: 220, maxWidth: '100%' }}
           prefix={svg(<><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></>)} />
-        <div style={{ overflowX: 'auto', flex: '1 1 0', minWidth: 0 }}>
-          <Segmented value={filter} onChange={(v) => setFilter(v as any)} size="small" options={[
+        <div style={{ overflowX: 'auto' }}>
+          <Segmented block value={filter} onChange={(v) => setFilter(v as any)} size="small" options={[
             { label: `${t('common.all')} ${cnt('all')}`, value: 'all' },
             { label: `${t('session.waiting')} ${cnt('waiting')}`, value: 'waiting' },
             { label: `Claude ${cnt('claude')}`, value: 'claude' },
