@@ -225,7 +225,10 @@ export default function App() {
 
   useEffect(() => {
     setUnauthorizedHandler(() => setAuthed(false))
-    api('GET', '/me').then(() => { setAuthed(true); loadPreferences() }).catch(() => setAuthed(false))
+    api('GET', '/me').then(() => {
+      setAuthed(true); loadPreferences()
+      navigator.clipboard?.readText?.().catch(() => {})
+    }).catch(() => setAuthed(false))
   }, [])
 
   // 终端状态同步到 URL，刷新后可恢复
