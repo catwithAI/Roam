@@ -41,6 +41,7 @@ type VolcanoSpeech struct {
 
 type SpeechConfig struct {
 	Provider string        `json:"provider"` // "openai" | "volcano" | ""(未配置)
+	HideMic  bool          `json:"hideMic"`  // 隐藏会话页麦克风按钮
 	OpenAI   OpenAISpeech  `json:"openai"`
 	Volcano  VolcanoSpeech `json:"volcano"`
 }

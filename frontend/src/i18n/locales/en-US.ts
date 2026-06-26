@@ -538,6 +538,7 @@ const enUS = {
   'settings.volcanoAccessToken': 'Access Token',
   'settings.volcanoResourceId': 'Resource ID',
   'settings.volcanoEndpoint': 'Endpoint',
+  'settings.speechHideMic': 'Hide microphone button',
   'settings.speechSaved': 'Voice settings saved',
   'settings.save': 'Save',
   'settings.browser': 'Browser (Chrome)',

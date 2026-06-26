@@ -1545,6 +1545,7 @@ function normalizeSpeech(d: any) {
   const c = d || {}
   return {
     provider: c.provider || '',
+    hideMic: !!c.hideMic,
     openai: {
       baseURL: c.openai?.baseURL || SPEECH_DEFAULTS.openai.baseURL,
       apiKey: c.openai?.apiKey || '',
@@ -1605,6 +1606,10 @@ function SpeechCard() {
             <Input addonBefore={t('settings.volcanoEndpoint')} value={cfg.volcano.endpoint} onChange={(e) => setVolc('endpoint', e.target.value)} />
           </Space>
         )}
+        <Space align="center">
+          <Switch checked={cfg.hideMic} onChange={(v) => setCfg((c: any) => ({ ...c, hideMic: v }))} />
+          <span>{t('settings.speechHideMic')}</span>
+        </Space>
         <Button type="primary" loading={saving} onClick={save}>{t('settings.save')}</Button>
       </Space>
     </Card>

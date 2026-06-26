@@ -538,6 +538,7 @@ const zhCN = {
   'settings.volcanoAccessToken': 'Access Token',
   'settings.volcanoResourceId': 'Resource ID',
   'settings.volcanoEndpoint': '接口地址',
+  'settings.speechHideMic': '隐藏麦克风按钮',
   'settings.speechSaved': '语音设置已保存',
   'settings.save': '保存',
   'settings.browser': '浏览器 (Chrome)',

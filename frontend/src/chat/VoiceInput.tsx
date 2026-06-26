@@ -24,6 +24,7 @@ export function VoiceInput({ accent, onResult }: { accent: string; onResult: (te
     && typeof window !== 'undefined' && typeof window.MediaRecorder !== 'undefined'
   const micHint = window.isSecureContext === false ? t('voice.insecureContext') : t('voice.unsupported')
   const [configured, setConfigured] = useState(false)
+  const [hidden, setHidden] = useState(false)
   const [phase, setPhase] = useState<Phase>('idle')
   const [secs, setSecs] = useState(0)
   const [cancelArmed, setCancelArmed] = useState(false)
@@ -41,6 +42,7 @@ export function VoiceInput({ accent, onResult }: { accent: string; onResult: (te
   useEffect(() => {
     api('GET', '/speech/config').then((r) => {
       const c = r?.data || {}
+      setHidden(!!c.hideMic)
       const ok = c.provider === 'openai'
         ? !!c.openai?.apiKey
         : c.provider === 'volcano'
@@ -129,6 +131,8 @@ export function VoiceInput({ accent, onResult }: { accent: string; onResult: (te
   const active = phase === 'recording' || phase === 'requesting'
   const mm = String(Math.floor(secs / 60)).padStart(2, '0')
   const ss = String(secs % 60).padStart(2, '0')
+
+  if (hidden) return null
 
   return (
     <>
