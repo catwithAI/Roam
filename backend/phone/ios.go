@@ -65,12 +65,12 @@ func (d *iosDevice) simctl(timeout time.Duration, args ...string) ([]byte, error
 	return runCmd(timeout, "xcrun", append([]string{"simctl"}, args...)...)
 }
 
-// idb 调用：把 --udid <target> 注入到子命令后。需 idb 在 PATH。
+// idb 调用：把 --udid <udid> 追加到命令末尾（fb-idb 的 argparse 允许选项在位置参数之后；
+// 放在子命令路径之前会被当成 group 的参数而出错）。需 idb 在 PATH。
 func (d *iosDevice) idb(timeout time.Duration, args ...string) ([]byte, error) {
-	udid := d.resolveUDID()
-	full := args
-	if udid != "" {
-		full = append(append([]string{args[0]}, "--udid", udid), args[1:]...)
+	full := append([]string{}, args...)
+	if udid := d.resolveUDID(); udid != "" {
+		full = append(full, "--udid", udid)
 	}
 	return runCmd(timeout, "idb", full...)
 }

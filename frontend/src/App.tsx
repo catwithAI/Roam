@@ -1657,24 +1657,35 @@ function CertDownloadButton() {
 function PhoneSettingsCard() {
   const { t } = useI18n()
   const { message } = AntApp.useApp()
-  const [mode, setMode] = useState('local')
+  const [platform, setPlatform] = useState<'android' | 'ios'>('android')
+  const [mode, setMode] = useState('local')          // android 子模式
   const [address, setAddress] = useState('localhost:5555')
-  const [resolution, setResolution] = useState('')
+  const [resolution, setResolution] = useState('')   // android only
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     api('GET', '/phone/config').then((r) => {
-      if (r?.data) { setMode(r.data.mode || 'local'); setAddress(r.data.address || ''); setResolution(r.data.resolution || '') }
+      if (r?.data) {
+        setPlatform(r.data.platform === 'ios' ? 'ios' : 'android')
+        setMode(r.data.mode || 'local'); setAddress(r.data.address || ''); setResolution(r.data.resolution || '')
+      }
     }).catch(() => {})
   }, [])
   const applyHealth = (h: any) => {
     if (h?.ok) setStatus({ ok: true, text: h.device || 'OK' })
     else setStatus({ ok: false, text: h?.error || t('phone.disconnected') })
   }
+  // 切平台：带平台默认值（Android→本地 redroid；iOS→模拟器 booted）
+  const changePlatform = (p: 'android' | 'ios') => {
+    setPlatform(p)
+    if (p === 'ios') { setMode('simulator'); setAddress('') }
+    else { setMode('local'); setAddress('localhost:5555') }
+  }
+  const changeMode = (m: string) => { setMode(m); if (m === 'local') setAddress('localhost:5555') }
   const save = async () => {
     setBusy(true)
     try {
-      const r = await api('PUT', '/phone/config', { mode, address: address.trim(), resolution })
+      const r = await api('PUT', '/phone/config', { platform, mode, address: address.trim(), resolution })
       applyHealth(r?.data?.health); message.success(t('phone.saved'))
     } catch (e: any) { message.error(e.message) } finally { setBusy(false) }
   }
@@ -1686,48 +1697,66 @@ function PhoneSettingsCard() {
   return (
     <Card title={t('settings.phoneTitle')}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <Segmented
-          value={mode}
-          onChange={(v) => {
-            const m = v as string; setMode(m)
-            if (m === 'local') setAddress('localhost:5555')
-            else if (m === 'ios') setAddress('') // iOS 用模拟器 UDID，留空=已启动的
-          }}
-          options={[
-            { label: t('phone.mode.local'), value: 'local' },
-            { label: t('phone.mode.remote'), value: 'remote' },
-            { label: t('phone.mode.device'), value: 'device' },
-            { label: t('phone.mode.ios'), value: 'ios' },
-          ]}
-        />
-        {mode !== 'local' && (
+        {/* 第一层：平台 */}
+        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{t('phone.platform')}</span>
+          <Segmented
+            value={platform}
+            onChange={(v) => changePlatform(v as 'android' | 'ios')}
+            options={[
+              { label: t('phone.platform.android'), value: 'android' },
+              { label: t('phone.platform.ios'), value: 'ios' },
+            ]}
+          />
+        </Space>
+
+        {/* 第二层：Android = 来源 + 地址 + 分辨率；iOS = 模拟器 UDID */}
+        {platform === 'android' ? (
+          <>
+            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{t('phone.source')}</span>
+              <Segmented
+                value={mode}
+                onChange={(v) => changeMode(v as string)}
+                options={[
+                  { label: t('phone.mode.local'), value: 'local' },
+                  { label: t('phone.mode.remote'), value: 'remote' },
+                  { label: t('phone.mode.device'), value: 'device' },
+                ]}
+              />
+            </Space>
+            {mode !== 'local' && (
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Input value={address} onChange={(e) => setAddress(e.target.value)}
+                  placeholder={t('phone.addrPlaceholder')} style={{ maxWidth: 320 }} />
+                <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>
+                  {mode === 'remote' ? t('phone.addrHelpRemote') : t('phone.addrHelpDevice')}
+                </span>
+              </Space>
+            )}
+            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{t('phone.resolution')}</span>
+              <Segmented
+                value={resolution || 'phone'}
+                onChange={(v) => setResolution((v as string) === 'phone' ? '' : (v as string))}
+                options={[
+                  { label: t('phone.res.phone'), value: 'phone' },
+                  { label: t('phone.res.tablet'), value: 'tablet' },
+                  { label: t('phone.res.tabletLand'), value: 'tablet-land' },
+                  { label: t('phone.res.tabletLarge'), value: 'tablet-large' },
+                ]}
+              />
+              <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('phone.resHelp')}</span>
+            </Space>
+          </>
+        ) : (
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
             <Input value={address} onChange={(e) => setAddress(e.target.value)}
-              placeholder={mode === 'ios' ? t('phone.addrPlaceholderIOS') : t('phone.addrPlaceholder')}
-              style={{ maxWidth: 320 }} />
-            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>
-              {mode === 'remote' ? t('phone.addrHelpRemote')
-                : mode === 'ios' ? t('phone.addrHelpIOS')
-                  : t('phone.addrHelpDevice')}
-            </span>
+              placeholder={t('phone.addrPlaceholderIOS')} style={{ maxWidth: 320 }} />
+            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('phone.addrHelpIOS')}</span>
           </Space>
         )}
-        {mode !== 'ios' && (
-          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{t('phone.resolution')}</span>
-            <Segmented
-              value={resolution || 'phone'}
-              onChange={(v) => setResolution((v as string) === 'phone' ? '' : (v as string))}
-              options={[
-                { label: t('phone.res.phone'), value: 'phone' },
-                { label: t('phone.res.tablet'), value: 'tablet' },
-                { label: t('phone.res.tabletLand'), value: 'tablet-land' },
-                { label: t('phone.res.tabletLarge'), value: 'tablet-large' },
-              ]}
-            />
-            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('phone.resHelp')}</span>
-          </Space>
-        )}
+
         <Space wrap>
           <Button type="primary" loading={busy} onClick={save}>{t('phone.save')}</Button>
           <Button loading={busy} onClick={test}>{t('phone.test')}</Button>

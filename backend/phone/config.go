@@ -18,8 +18,9 @@ import (
 )
 
 type Config struct {
-	Mode    string `json:"mode"`    // local | remote | device | ios
-	Address string `json:"address"` // adb 地址 host:port / USB serial；ios 模式下为模拟器 UDID（空=booted）
+	Platform string `json:"platform"` // android | ios（决定用哪个后端）
+	Mode     string `json:"mode"`     // android: local | remote | device（ios 下忽略）
+	Address  string `json:"address"`  // android: adb host:port / USB serial；ios: 模拟器 UDID（空=booted）
 	// Resolution: 设备显示分辨率预设(adb wm size/density)，仅 Android 有效。
 	// "" / "phone" = 原生(reset)；其余见 ResolutionPresets。设置页可选。
 	Resolution string `json:"resolution,omitempty"`
@@ -42,12 +43,24 @@ var cfgStore struct {
 	cur  Config
 }
 
-// 默认：macOS 上默认 iOS 模拟器，其它默认本地 redroid。
+// 默认：macOS 默认 iOS 模拟器；其它默认本地 redroid（Android）。
 func defaultConfig() Config {
 	if runtime.GOOS == "darwin" {
-		return Config{Mode: "ios", Address: ""}
+		return Config{Platform: "ios", Mode: "simulator", Address: ""}
 	}
-	return Config{Mode: "local", Address: "localhost:5555"}
+	return Config{Platform: "android", Mode: "local", Address: "localhost:5555"}
+}
+
+// migrate 兼容旧配置：早期 Platform 字段不存在，平台编码在 Mode 里（mode=="ios"）。
+func migrate(c Config) Config {
+	if c.Platform == "" {
+		if c.Mode == "ios" {
+			c.Platform, c.Mode = "ios", "simulator"
+		} else {
+			c.Platform = "android"
+		}
+	}
+	return c
 }
 
 // InitConfig 设定配置文件路径并加载已存配置，由 server.New 用 dataDir 调一次。
@@ -62,8 +75,8 @@ func InitConfig(dataDir string) {
 	cfgStore.file = filepath.Join(dataDir, "phone-config.json")
 	if b, err := os.ReadFile(cfgStore.file); err == nil {
 		var c Config
-		if json.Unmarshal(b, &c) == nil && c.Mode != "" {
-			cfgStore.cur = c
+		if json.Unmarshal(b, &c) == nil && (c.Platform != "" || c.Mode != "") {
+			cfgStore.cur = migrate(c)
 		}
 	}
 }
@@ -75,7 +88,8 @@ func getConfig() Config {
 }
 
 func setConfig(c Config) {
-	if c.Mode == "" {
+	c = migrate(c)
+	if c.Platform == "android" && c.Mode == "" {
 		c.Mode = "local"
 	}
 	cfgStore.mu.Lock()

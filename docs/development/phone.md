@@ -184,17 +184,25 @@ xcrun simctl io booted screenshot shot.png
 > **读屏幕结构**最值得优先暴露：给模型 UI 元素树（带坐标/文案/可点性），它就能「看结构→算坐标→tap」，
 > 不必纯靠像素猜坐标，可靠性高一档。唯一硬缺口是 iOS 输入全依赖 `idb`。
 
-## 6.5 后端目标三选一（设置页「手机 / Android」）
+## 6.5 后端目标配置（设置页「手机」标签，两级：平台 → 来源）
 
-后端目标由 `backend/phone/config.go` 持久化(`<dataDir>/phone-config.json`),设置页可切：
+后端目标由 `backend/phone/config.go` 持久化(`<dataDir>/phone-config.json`)。配置 `{platform, mode, address, resolution}`，
+`Current()` 按 **platform** 选后端（android→adb / ios→simctl+idb），**与主机系统解耦**——Mac 上也能选 Android。
 
-| 模式 | 含义 | 地址 |
+**平台 Android**（mode 子档）：
+
+| mode | 含义 | 地址 |
 |---|---|---|
-| **本地 redroid** | 同机容器 | 默认 `localhost:5555` |
-| **远程 redroid** | 另一台机器上的 redroid（**ARM 主机原生跑 arm App，绕过反模拟器**） | 填它的 adb `host:port` |
-| **真机** | 物理手机 | 无线调试填 `host:port`；USB 填 adb serial（留空=默认单设备） |
+| `local` | 本地 redroid（同机容器） | 默认 `localhost:5555` |
+| `remote` | 远程 redroid（**ARM 主机原生跑 arm App，绕反模拟器**） | 它的 adb `host:port` |
+| `device` | 真机（**Linux/Mac 都支持**，adb 在 Mac 也有） | 无线 `host:port`；USB 填 serial（空=默认） |
 
-`host:port` 形式在 `Ensure` 时先做幂等 `adb connect`，再用它当 `-s` 目标。API：`GET/PUT /phone/config`、`POST /phone/connect`。
+**平台 iOS**（仅 macOS）：`address` = 模拟器 UDID（空=已 booted）；需 Xcode + idb。
+
+`host:port` 形式在 `Ensure` 时先幂等 `adb connect` 再当 `-s` 目标。API：`GET/PUT /phone/config`、`POST /phone/connect`。
+旧配置（mode 曾编码平台）自动迁移：`mode=ios`→`{ios,simulator}`，其余→`{android, mode}`。
+
+**依赖按平台自适应安装**：`scripts/install-phone.sh`（已并入 `install.sh`）——Linux 装 `adb`；macOS 装 `idb`+`adb`（Mac 同时支持 iOS 模拟器与接 Android 真机）。
 
 > **反模拟器 App（同花顺/东方财富等）的正解 = 远程 redroid 跑在 ARM64 主机**，或真机。x86 上 arm 翻译会被 native 检测识破（详见调研记录）。
 > **Jetson 实测**：ARM64 合适,但 NVIDIA L4T 内核 `CONFIG_KPROBES` 未开、无 `CONFIG_ANDROID_BINDER` → 现成内核装不了 binder（anbox 模块需 kprobes），**要重编内核**(加 `CONFIG_ANDROID_BINDER_IPC=m`+`CONFIG_ANDROID_BINDERFS=m`+`CONFIG_KPROBES=y`)才能跑 redroid。

@@ -60,8 +60,8 @@ func SetConfig(c *gin.Context) {
 	setConfig(body)
 	dev := Current()
 	_ = dev.Ensure()
-	// 非 iOS(= Android)按设置的分辨率预设改设备显示(wm size/density)。
-	if getConfig().Mode != "ios" {
+	// Android 才按设置的分辨率预设改设备显示(wm size/density)。
+	if getConfig().Platform == "android" {
 		_ = androidImpl.SetResolution(getConfig().Resolution)
 	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"config": getConfig(), "health": dev.Health()}})

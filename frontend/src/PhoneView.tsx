@@ -118,7 +118,7 @@ export default function PhoneView() {
       if (p === 'ios' || p === 'android') setPlatform(p)
     }).catch(() => {})
     api('GET', '/phone/config').then((r) => {
-      if (r?.data?.mode === 'ios') setPlatform('ios')
+      if (r?.data?.platform === 'ios') setPlatform('ios')
     }).catch(() => {})
   }, [])
 
