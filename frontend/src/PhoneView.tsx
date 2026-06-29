@@ -9,10 +9,13 @@ import { useI18n } from './i18n'
 
 interface PhoneApp { id: string; name?: string }
 
-const QUALITY_OPTS = [
-  { labelKey: 'phone.quality.low', value: 30 },
-  { labelKey: 'phone.quality.standard', value: 50 },
-  { labelKey: 'phone.quality.high', value: 75 },
+// 与浏览器对齐：自动(自适应) / 标清 / 高清 / 超清（复用 browser.quality.* 文案）
+type Quality = number | 'auto'
+const QUALITY_OPTS: { labelKey: string; value: Quality }[] = [
+  { labelKey: 'browser.quality.auto', value: 'auto' },
+  { labelKey: 'browser.quality.standard', value: 50 },
+  { labelKey: 'browser.quality.high', value: 80 },
+  { labelKey: 'browser.quality.ultra', value: 92 },
 ]
 const QKEY = 'ttmux.phone.quality'
 
@@ -31,7 +34,12 @@ export default function PhoneView() {
 
   const [connected, setConnected] = useState(false)
   const [healthMsg, setHealthMsg] = useState('')
-  const [quality, setQuality] = useState<number>(() => Number(localStorage.getItem(QKEY)) || 50)
+  const [quality, setQuality] = useState<Quality>(() => {
+    const s = localStorage.getItem(QKEY)
+    if (s == null || s === 'auto') return 'auto'
+    return Number(s) || 'auto'
+  })
+  const [levelName, setLevelName] = useState('') // 自适应当前档名（auto 时显示）
   const [apps, setApps] = useState<PhoneApp[]>([])
   const [platform, setPlatform] = useState<'android' | 'ios'>('android')
   const [latency, setLatency] = useState<number | null>(null)
@@ -125,57 +133,69 @@ export default function PhoneView() {
   const launch = (id: string) => { if (id) api('POST', `/phone/apps/${encodeURIComponent(id)}/launch`).catch(() => {}) }
   const pressKey = (name: string) => api('POST', '/phone/key', { name }).catch(() => {})
 
-  // quality 变化才重连
+  // quality 变化才重建连接；断开(掉线/切设备/redroid 停起)自动重连，画面自愈无需刷新。
   useEffect(() => {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${proto}://${location.host}/api/phone/stream?control=1&q=${quality}`)
-    ws.binaryType = 'arraybuffer'
-    wsRef.current = ws
+    let stopped = false
+    let ws: WebSocket | null = null
     let objURL: string | null = null
-    ws.onopen = () => { setConnected(true); setHealthMsg('') }
-    ws.onclose = () => {
-      setConnected(false)
-      api('GET', '/phone/health').then((r) => { if (!r?.data?.ok) setHealthMsg(r?.data?.error || '') }).catch(() => {})
-    }
-    ws.onmessage = (e) => {
-      if (typeof e.data !== 'string') {
-        if (!imgRef.current) return
-        const buf = e.data as ArrayBuffer
-        const dv = new DataView(buf)
-        const w = dv.getUint16(0, true), h = dv.getUint16(2, true), seq = dv.getUint16(4, true)
-        sizeRef.current = { w: w || 1080, h: h || 2400 }
-        bytesRef.current += buf.byteLength
-        framesRef.current++
-        if (objURL) URL.revokeObjectURL(objURL)
-        objURL = URL.createObjectURL(new Blob([new Uint8Array(buf, 6)], { type: 'image/jpeg' }))
-        imgRef.current.src = objURL
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ack', n: seq }))
-        return
+    let retry: any = null
+    const connect = () => {
+      if (stopped) return
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      const qParam = quality === 'auto' ? 'auto=1' : `q=${quality}`
+      const sock = new WebSocket(`${proto}://${location.host}/api/phone/stream?control=1&${qParam}`)
+      sock.binaryType = 'arraybuffer'
+      ws = sock; wsRef.current = sock
+      sock.onopen = () => { setConnected(true); setHealthMsg('') }
+      sock.onclose = () => {
+        setConnected(false)
+        if (stopped) return
+        api('GET', '/phone/health').then((r) => { if (!r?.data?.ok) setHealthMsg(r?.data?.error || '') }).catch(() => {})
+        retry = setTimeout(connect, 1500) // 自动重连
       }
-      const msg = JSON.parse(e.data)
-      if (msg.type === 'error') { setHealthMsg(msg.msg); return }
-      if (msg.type === 'pong') { setLatency(Math.round(performance.now() - msg.t)); return }
+      sock.onmessage = (e) => {
+        if (typeof e.data !== 'string') {
+          if (!imgRef.current) return
+          const buf = e.data as ArrayBuffer
+          const dv = new DataView(buf)
+          const w = dv.getUint16(0, true), h = dv.getUint16(2, true), seq = dv.getUint16(4, true)
+          sizeRef.current = { w: w || 1080, h: h || 2400 }
+          bytesRef.current += buf.byteLength
+          framesRef.current++
+          if (objURL) URL.revokeObjectURL(objURL)
+          objURL = URL.createObjectURL(new Blob([new Uint8Array(buf, 6)], { type: 'image/jpeg' }))
+          imgRef.current.src = objURL
+          if (sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: 'ack', n: seq }))
+          return
+        }
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'error') { setHealthMsg(msg.msg); return }
+        if (msg.type === 'pong') { setLatency(Math.round(performance.now() - msg.t)); return }
+        if (msg.type === 'level') { setLevelName(msg.name || ''); return }
+      }
     }
+    connect()
     const ping = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping', t: performance.now() }))
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping', t: performance.now() }))
     }, 1000)
     const meter = setInterval(() => {
       setBw(bytesRef.current); setFps(framesRef.current)
       bytesRef.current = 0; framesRef.current = 0
     }, 1000)
     return () => {
-      clearInterval(ping); clearInterval(meter)
+      stopped = true
+      clearInterval(ping); clearInterval(meter); clearTimeout(retry)
       if (objURL) URL.revokeObjectURL(objURL)
-      ws.close()
+      ws?.close()
     }
   }, [quality])
 
-  const changeQuality = (v: number) => { setQuality(v); try { localStorage.setItem(QKEY, String(v)) } catch {} }
+  const changeQuality = (v: Quality) => { setQuality(v); try { localStorage.setItem(QKEY, String(v)) } catch {} }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* 顶栏：质量 + 连接状态 + 指标 + App 启动 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', flex: '0 0 auto', flexWrap: 'wrap' }}>
+      {/* 第一栏：画质 + 连接状态 + 指标 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px 4px', flex: '0 0 auto', flexWrap: 'wrap' }}>
         <Space.Compact size="small">
           {QUALITY_OPTS.map((o) => {
             const on = quality === o.value
@@ -188,23 +208,28 @@ export default function PhoneView() {
             )
           })}
         </Space.Compact>
+        <Tag color={connected ? 'green' : 'red'} style={{ marginInlineEnd: 0, marginLeft: 'auto' }}>
+          {connected ? t('phone.connected') : t('phone.disconnected')}
+        </Tag>
+        <span style={{ color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          {quality === 'auto' && levelName ? <span style={{ color: '#58a6ff' }}>{levelName} · </span> : null}
+          {latency == null ? '—' : latency + 'ms'} · {fmtRate(bw)} · {fps}fps
+        </span>
+      </div>
+
+      {/* 第二栏：打开应用 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px 8px', flex: '0 0 auto' }}>
         <Select
           size="small"
           showSearch
           placeholder={t('phone.launchApp')}
-          style={{ width: 200 }}
+          style={{ width: 240 }}
           value={null}
           onChange={launch}
           onDropdownVisibleChange={(open) => { if (open) loadApps() }}
           filterOption={(input, opt) => String(opt?.value || '').toLowerCase().includes(input.toLowerCase())}
           options={apps.map((a) => ({ value: a.id, label: a.name || a.id }))}
         />
-        <Tag color={connected ? 'green' : 'red'} style={{ marginInlineEnd: 0 }}>
-          {connected ? t('phone.connected') : t('phone.disconnected')}
-        </Tag>
-        <span style={{ color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-          {latency == null ? '—' : latency + 'ms'} · {fmtRate(bw)} · {fps}fps
-        </span>
       </div>
 
       <style>{`
@@ -230,7 +255,9 @@ export default function PhoneView() {
         <img
           ref={imgRef}
           draggable={false}
-          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', userSelect: 'none' }}
+          // 绝对填满舞台 + object-fit:contain：尺寸对着舞台的确定盒子解析，避免
+          // maxHeight:100% 在 flex 列里初次布局拿不到确定高度→需 resize 才显示的 bug。
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block', userSelect: 'none' }}
         />
         {ripples.map((p) => (<span key={p.id} className="pv-ripple" style={{ left: p.x, top: p.y }} />))}
         {!connected && healthMsg && (
