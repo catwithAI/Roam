@@ -73,8 +73,8 @@ func (a *API) Files(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "parent": filepath.Dir(p), "entries": list}})
 	case <-time.After(3 * time.Second):
 		c.JSON(http.StatusGatewayTimeout, gin.H{"error": gin.H{
-			"code":    "DIR_ACCESS_TIMEOUT",
-			"message": fmt.Sprintf("读取目录超时（可能是 macOS 隐私权限未授权）。请在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中授权 ttmux-web，或将其移到终端(Terminal)的授权下运行。路径: %s", p),
+			"code": "DIR_ACCESS_TIMEOUT",
+			"path": p,
 		}})
 	}
 }
