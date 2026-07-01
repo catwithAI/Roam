@@ -263,6 +263,13 @@ const ListIcon = () => (
 const SearchIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
 )
+// markdown 预览（VSCode 式）：切换预览 / 侧栏打开预览
+const PreviewIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 9h10" /><path d="M7 13h10" /><path d="M7 17h6" /></svg>
+)
+const PreviewSideIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M13 4v16" /><path d="M16 10h3" /><path d="M16 14h3" /></svg>
+)
 // 目录展开箭头：展开时旋转 90°
 const Chevron = ({ open }: { open: boolean }) => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
@@ -340,10 +347,12 @@ export function Viewer({
   inline,
   active = true,
   tabbed,
+  forcePreview,
   onClose,
   onOpenPath,
   onOpenAgent,
   onDirtyChange,
+  onPreviewToSide,
 }: {
   path: string
   accent: string
@@ -353,11 +362,15 @@ export function Viewer({
   active?: boolean
   // 编辑器 tab 上下文：外层 tab 已显示文件名+关闭，这里就不再重复顶部「▸ 文件名」标题行。
   tabbed?: boolean
+  // 专用预览 tab（VSCode「侧栏预览」）：始终渲染 markdown，不显示编辑器/切换钮。
+  forcePreview?: boolean
   onClose: () => void
   onOpenPath: (p: string) => void
   onOpenAgent?: (kind: 'claude' | 'codex', path: string) => void
   // 编辑器脏状态上报（供外层 tab 显示未保存圆点）
   onDirtyChange?: (path: string, dirty: boolean) => void
+  // 在侧栏打开渲染预览（外层 FileWorkspace 处理，开另一栏）
+  onPreviewToSide?: (path: string) => void
 }) {
   const ext = extOf(path)
   const isImg = IMG_EXT.includes(ext)
@@ -380,6 +393,7 @@ export function Viewer({
   const [agentPick, setAgentPick] = useState(false)
   const [draft, setDraft] = useState('') // 编辑器当前文本
   const [saving, setSaving] = useState(false)
+  const [stale, setStale] = useState(false) // 磁盘上文件已被外部(cc/codex)改动，但本地有未保存改动没自动覆盖
   const { message } = AntApp.useApp()
   const { t } = useI18n()
   const { mode } = useThemeMode()
@@ -393,8 +407,9 @@ export function Viewer({
     if (!editable || saving || !dirty) return
     setSaving(true)
     try {
-      await api('POST', '/file/save', { path, content: draft })
-      setData((d: any) => ({ ...d, content: draft })) // 基线更新 → dirty 归零
+      const res = await api('POST', '/file/save', { path, content: draft })
+      setData((d: any) => ({ ...d, content: draft, mtime: res.data?.mtime ?? d?.mtime })) // 基线更新 → dirty 归零；mtime 同步避免自触发重载
+      setStale(false)
       message.success(t('file.saved'))
     } catch (e: any) {
       message.error(t('file.saveFailed', { message: e.message }))
@@ -409,9 +424,29 @@ export function Viewer({
   useEffect(() => {
     if (isImg || isPdf || isOffice) return // 图片/PDF/Office 直接走 raw 或专用面板
     // tab 语境的 markdown 默认进编辑器（源码），点眼睛才切预览；非 tab（有头部）默认渲染。
-    setData(null); setErr(''); setSource(!!tabbed && MD_EXT.includes(extOf(path))); setDraft('')
+    setData(null); setErr(''); setStale(false); setSource(!!tabbed && MD_EXT.includes(extOf(path))); setDraft('')
     api('GET', `/file?path=${encodeURIComponent(path)}`).then((r) => { setData(r.data); setDraft(r.data?.content || '') }).catch((e) => setErr(e.message))
   }, [path, isImg, isPdf, isOffice])
+
+  // 从磁盘重载（放弃本地未保存改动）
+  const reloadFromDisk = () => {
+    api('GET', `/file?path=${encodeURIComponent(path)}`).then((r) => { setData(r.data); setDraft(r.data?.content || ''); setStale(false) }).catch(() => {})
+  }
+  // 外部(cc/codex 等)改动已打开的文件 → 轮询 mtime：无本地改动自动重载渲染；有未保存改动只提示不覆盖。
+  useEffect(() => {
+    if (!active || !data || err || isImg || isPdf || isOffice) return
+    let stop = false
+    const h = setInterval(async () => {
+      try {
+        const r = await api('GET', `/file/stat?path=${encodeURIComponent(path)}`)
+        if (stop || !r.data?.mtime || r.data.mtime === data.mtime) return
+        if (dirty) { setStale(true); return } // 有未保存改动 → 不覆盖，仅提示
+        const fr = await api('GET', `/file?path=${encodeURIComponent(path)}`)
+        if (!stop) { setData(fr.data); setDraft(fr.data?.content || '') }
+      } catch {}
+    }, 2000)
+    return () => { stop = true; clearInterval(h) }
+  }, [active, data?.mtime, dirty, path, isImg, isPdf, isOffice, err])
 
   // 非激活 tab：只占位、不挂载重型 Monaco/预览（state 已在上面 hook 里保留，切回来不丢编辑）。
   if (!active) return <div style={{ height: '100%' }} />
@@ -526,8 +561,8 @@ export function Viewer({
             <>
               {isSheetText
                 ? csvTable(data.content, ext === 'tsv' ? '\t' : ',')
-                : isMd && !source
-                  ? <div style={{ height: previewHeight, overflow: 'auto' }}><Markdown accent={accent} resolveHref={resolvePreviewHref} onLinkClick={openPreviewLink}>{data.content}</Markdown></div>
+                : isMd && (!source || forcePreview)
+                  ? <div style={{ height: previewHeight, overflow: 'auto', padding: forcePreview ? '0 8px' : undefined }}><Markdown accent={accent} resolveHref={resolvePreviewHref} onLinkClick={openPreviewLink}>{data.content}</Markdown></div>
                   : (
                     // 文本/代码/JSON/Markdown(源码) → Monaco 编辑器（行号、语法高亮、可编辑；截断的大文件只读）。
                     // tab 语境下全屏无边框，背景由 CodeEditor 统一成应用底色。
@@ -563,14 +598,25 @@ export function Viewer({
         {!tabbed && <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--border-subtle)' }}>{titleNode}</div>}
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', padding: tabbed ? 0 : 12, position: 'relative' }}>
           {bodyNode}
-          {/* tab 语境无头部：markdown 用右上角悬浮眼睛在「源码/预览」间切换 */}
-          {tabbed && isMd && data && !data.binary && (
-            <Tooltip title={source ? t('file.rendered') : t('file.source')} placement="left">
-              <button type="button" onClick={() => setSource((s) => !s)}
-                style={{ position: 'absolute', top: 8, right: 12, zIndex: 10, width: 30, height: 30, borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-subtle)', background: source ? 'var(--bg-container)' : accent, color: source ? 'var(--text-dim)' : '#fff' }}>
-                {source ? <EyeIcon /> : <CodeIcon />}
-              </button>
-            </Tooltip>
+          {/* tab 语境无头部：markdown 右上角 VSCode 式预览按钮（切换预览 / 侧栏打开预览） */}
+          {tabbed && isMd && !forcePreview && data && !data.binary && (
+            <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 10, display: 'inline-flex', gap: 2, background: 'color-mix(in srgb, var(--bg-base) 82%, transparent)', borderRadius: 8, padding: 2 }}>
+              <Tooltip title={source ? t('file.preview') : t('file.source')} placement="bottom">
+                <Button type="text" size="small" onClick={() => setSource((s) => !s)} style={{ color: !source ? accent : 'var(--text-dim)', width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><PreviewIcon /></Button>
+              </Tooltip>
+              {onPreviewToSide && (
+                <Tooltip title={t('file.previewToSide')} placement="bottom">
+                  <Button type="text" size="small" onClick={() => onPreviewToSide(path)} style={{ color: 'var(--text-dim)', width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><PreviewSideIcon /></Button>
+                </Tooltip>
+              )}
+            </div>
+          )}
+          {/* 文件被外部(cc/codex)改动、但本地有未保存改动 → 提示条 */}
+          {stale && dirty && (
+            <div style={{ position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)', zIndex: 11, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 10px', borderRadius: 8, fontSize: 12, background: 'var(--bg-container)', border: '1px solid #d29922', color: 'var(--text-bright)', boxShadow: 'var(--elevated-shadow)' }}>
+              <span>⚠ {t('file.changedOnDisk')}</span>
+              <Button size="small" danger onClick={reloadFromDisk}>{t('file.reloadFromDisk')}</Button>
+            </div>
           )}
         </div>
       </div>

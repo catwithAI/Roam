@@ -10,10 +10,13 @@ type Group = 'A' | 'B'
 const TAB_MIME = 'application/x-ttmux-tab'
 const PATH_MIME = 'application/x-ttmux-path'
 const LEAD_MIME = 'application/x-ttmux-lead' // 拖会话(首)tab → 左右易位
+const PREVIEW_PREFIX = 'preview://' // 侧栏预览 tab 的标识前缀（区别于同文件的源码 tab）
 
 function baseName(p: string): string {
   return p.split('/').pop() || p
 }
+const isPreview = (id: string) => id.startsWith(PREVIEW_PREFIX)
+const realPath = (id: string) => (isPreview(id) ? id.slice(PREVIEW_PREFIX.length) : id)
 
 export default function FileWorkspace({
   dir,
@@ -72,6 +75,13 @@ export default function FileWorkspace({
     setActiveOf(g, p); setFocus(g)
   }
   const openFileTab = (p: string) => openInGroup(p, split ? focus : 'A')
+  // VSCode「侧栏打开预览」：把该 markdown 的渲染预览开到另一栏（预览 tab 用前缀区分，可与源码同时存在）
+  const openPreviewToSide = (fromGroup: Group, p: string) => {
+    const to: Group = fromGroup === 'A' ? 'B' : 'A'
+    const id = PREVIEW_PREFIX + p
+    if (!filesOf(to).includes(id)) setFilesOf(to, [...filesOf(to), id])
+    setActiveOf(to, id); setFocus(to)
+  }
 
   const neighbor = (arr: string[], removedIdx: number, g: Group): string | null => {
     const next = arr
@@ -160,16 +170,18 @@ export default function FileWorkspace({
   const tabBase: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap', fontSize: 12, cursor: 'pointer', borderRight: '1px solid var(--border)' }
 
   const fileTab = (f: string, g: Group) => {
-    const isDirty = dirtyFiles.has(f)
+    const prev = isPreview(f)
+    const rp = realPath(f)
+    const isDirty = !prev && dirtyFiles.has(f)
     const act = activeOf(g) === f
     return (
-      <div key={g + f} title={f} draggable
+      <div key={g + f} title={prev ? `${t('file.preview')} · ${rp}` : f} draggable
         onDragStart={(e) => { e.dataTransfer.setData(TAB_MIME, JSON.stringify({ path: f, from: g })); e.dataTransfer.effectAllowed = 'move' }}
         onClick={() => { setActiveOf(g, f); setFocus(g) }}
         className={`cc-filetab${isDirty ? ' dirty' : ''}`}
         style={{ ...tabBase, gap: 3, padding: '5px 8px 5px 10px', color: act ? 'var(--text-bright)' : 'var(--text-dim)', background: act ? 'var(--bg-base)' : 'transparent', borderTop: `2px solid ${act ? '#58a6ff' : 'transparent'}` }}>
-        <span style={{ display: 'inline-flex', transform: 'scale(0.72)' }}><FileTypeIcon name={f} /></span>
-        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>{baseName(f)}</span>
+        <span style={{ display: 'inline-flex', transform: 'scale(0.72)' }}><FileTypeIcon name={rp} /></span>
+        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', fontStyle: prev ? 'italic' : undefined }}>{prev ? `${t('file.preview')}: ${baseName(rp)}` : baseName(f)}</span>
         <a className="cc-tabx" onClick={(e) => { e.stopPropagation(); closeFileTab(f, g) }} title={isDirty ? t('file.unsaved') : t('file.closeTab')}>
           <span className="dot">●</span><span className="x">×</span>
         </a>
@@ -215,11 +227,17 @@ export default function FileWorkspace({
             setDropHint(null); applyDrop(e, target)
           }}>
           {primary && leadingContent}
-          {files.map((f) => (
-            <div key={f} style={{ position: 'absolute', inset: 0, zIndex: 6, background: 'var(--bg-base)', display: active === f ? 'block' : 'none' }}>
-              <Viewer path={f} accent={accent} inline tabbed active={active === f} onClose={() => closeFileTab(f, g)} onOpenPath={(p) => openInGroup(p, g)} onDirtyChange={setFileDirty} onOpenAgent={onOpenAgent} />
-            </div>
-          ))}
+          {files.map((f) => {
+            const prev = isPreview(f)
+            return (
+              <div key={f} style={{ position: 'absolute', inset: 0, zIndex: 6, background: 'var(--bg-base)', display: active === f ? 'block' : 'none' }}>
+                <Viewer path={realPath(f)} accent={accent} inline tabbed forcePreview={prev} active={active === f}
+                  onClose={() => closeFileTab(f, g)} onOpenPath={(p) => openInGroup(p, g)}
+                  onDirtyChange={prev ? undefined : setFileDirty} onOpenAgent={onOpenAgent}
+                  onPreviewToSide={prev ? undefined : (p) => openPreviewToSide(g, p)} />
+              </div>
+            )
+          })}
           {(!primary || !hasLeading) && active === null && files.length === 0 && (
             <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: 'var(--text-dimmer)', fontSize: 13 }}>{emptyText || t('file.selectPreview')}</div>
           )}
@@ -239,7 +257,7 @@ export default function FileWorkspace({
       {explorerOpen && (
         <>
           <div style={{ flex: `0 0 ${dockW}px`, minWidth: 0, minHeight: 0, display: 'flex' }}>
-            <FileBrowser dir={dir} accent={accent} layout="dock" onClose={onExplorerClose} onOpenFile={openFileTab} selectedPath={activeA} onOpenAgent={onOpenAgent} />
+            <FileBrowser dir={dir} accent={accent} layout="dock" onClose={onExplorerClose} onOpenFile={openFileTab} selectedPath={activeA ? realPath(activeA) : null} onOpenAgent={onOpenAgent} />
           </div>
           <div onPointerDown={startResize} title={t('file.dragResize')} style={{ flex: '0 0 5px', cursor: 'col-resize', background: 'var(--border)', touchAction: 'none' }} />
         </>

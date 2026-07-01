@@ -94,7 +94,7 @@ func (a *API) File(c *gin.Context) {
 		content = string(data)
 	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{
-		"path": p, "size": info.Size(), "truncated": truncated, "binary": binary, "content": content,
+		"path": p, "size": info.Size(), "mtime": info.ModTime().Unix(), "truncated": truncated, "binary": binary, "content": content,
 	}})
 }
 
@@ -123,11 +123,12 @@ func (a *API) FileSave(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "WRITE_ERROR", "message": err.Error()}})
 		return
 	}
-	var size int64
+	var size, mtime int64
 	if ni, err := os.Stat(p); err == nil {
 		size = ni.Size()
+		mtime = ni.ModTime().Unix()
 	}
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "size": size}})
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "size": size, "mtime": mtime}})
 }
 
 // FileSearch GET /file/search?dir=<dir>&q=<query> —— 从 dir 递归按文件名模糊(子串,忽略大小写)搜文件。
@@ -353,7 +354,7 @@ func (a *API) FileStat(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "FS_ERROR", "message": err.Error()}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "dir": info.IsDir(), "size": info.Size()}})
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "dir": info.IsDir(), "size": info.Size(), "mtime": info.ModTime().Unix()}})
 }
 
 // FileDelete DELETE /file?path=<file-or-empty-dir> —— 删除文件或空目录。
