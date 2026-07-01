@@ -14,6 +14,8 @@ export interface TermHandle {
   reconnect: () => void
   scroll: (lines: number) => void
   toBottom: () => void
+  // 按视口坐标激活该处的 tmux pane（分窗时拖放/点击定位到正确窗格）
+  selectPaneAt: (clientX: number, clientY: number) => void
 }
 
 // xterm 不认 CSS var()，需具体色值：读 <html> 上的同名变量，随黑/白主题切换。
@@ -80,16 +82,16 @@ const Term = forwardRef<TermHandle, {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'scroll', dir, lines }))
   }
 
-  const selectPaneAt = (e: MouseEvent) => {
-    if (e.button !== 0) return
+  const selectPaneAtClient = (clientX: number, clientY: number) => {
     const t = termRef.current, el = elRef.current, ws = wsRef.current
     if (!t || !el || !ws || ws.readyState !== 1 || t.cols <= 0 || t.rows <= 0) return
     const rect = el.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return
-    const col = Math.max(0, Math.min(t.cols - 1, Math.floor(((e.clientX - rect.left) / rect.width) * t.cols)))
-    const row = Math.max(0, Math.min(t.rows - 1, Math.floor(((e.clientY - rect.top) / rect.height) * t.rows)))
+    const col = Math.max(0, Math.min(t.cols - 1, Math.floor(((clientX - rect.left) / rect.width) * t.cols)))
+    const row = Math.max(0, Math.min(t.rows - 1, Math.floor(((clientY - rect.top) / rect.height) * t.rows)))
     ws.send(JSON.stringify({ type: 'select-pane', col, row }))
   }
+  const selectPaneAt = (e: MouseEvent) => { if (e.button === 0) selectPaneAtClient(e.clientX, e.clientY) }
 
   const connect = () => {
     if (unmounted.current) return
@@ -125,6 +127,7 @@ const Term = forwardRef<TermHandle, {
     reconnect: () => { try { wsRef.current?.close() } catch {} }, // onclose 触发自动重连
     scroll: (lines) => sendScroll(lines < 0 ? 'up' : 'down', Math.abs(lines)),
     toBottom: () => sendScroll('bottom', 0),
+    selectPaneAt: (clientX, clientY) => selectPaneAtClient(clientX, clientY),
   }))
 
   useEffect(() => {
