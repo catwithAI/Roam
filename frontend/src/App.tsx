@@ -13,7 +13,7 @@ import { api, upload, makeClipboardImageFile, setUnauthorizedHandler } from './a
 import Term, { TermHandle, TermStatus } from './Terminal'
 import ClaudeChat from './ClaudeChat'
 import CodexChat from './CodexChat'
-import FileBrowser from './FileBrowser'
+import FileBrowser, { Viewer, FileTypeIcon } from './FileBrowser'
 import FloatingFileDrawer from './FloatingFileDrawer'
 import GitPanel from './GitPanel'
 import BrowserView from './BrowserView'
@@ -80,6 +80,11 @@ const ICONS: Record<string, any> = {
   settings: svg(<><line x1="4" y1="7" x2="20" y2="7" /><circle cx="9" cy="7" r="2.3" /><line x1="4" y1="17" x2="20" y2="17" /><circle cx="15" cy="17" r="2.3" /></>),
   browser: svg(<><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><circle cx="6" cy="6.5" r="0.6" /><circle cx="8.4" cy="6.5" r="0.6" /></>),
   phone: svg(<><rect x="6" y="2" width="12" height="20" rx="2.5" /><line x1="10" y1="18.5" x2="14" y2="18.5" /></>),
+  github: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.5 2.87 8.32 6.84 9.67.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.36 9.36 0 0 1 2.5-.34c.85 0 1.71.12 2.5.34 1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.26C22 6.58 17.52 2 12 2z" />
+    </svg>
+  ),
 }
 
 
@@ -382,6 +387,7 @@ export default function App() {
     settings: <EnvPage />,
     browser: <BrowserView />,
     phone: <PhoneView />,
+    about: <AboutPage />,
   }
   const page = pages[tab] || pages.sessions
   // browser 全幅(自带工具栏铺满)；phone 与概览/会话一致走 tt-page（同 16px 留白 + 满高，见 tt-page-phone）。
@@ -422,6 +428,10 @@ export default function App() {
             <div style={{ flex: 1, overflowY: 'auto' }}>{menu}</div>
             {/* 底部：收起 在上，其次 全屏，最后 退出，始终竖向堆叠（展开带文字，折叠仅图标居中）。*/}
             <div style={{ borderTop: '1px solid var(--border-subtle)', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <Button type="text" block onClick={() => go('about')} title={t('nav.about')}
+                style={{ color: tab === 'about' ? '#58a6ff' : 'var(--text-dim)', textAlign: collapsed ? 'center' : 'left' }}>
+                {collapsed ? ICONS.github : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{ICONS.github}{t('nav.about')}</span>}
+              </Button>
               <Button type="text" block onClick={() => setCollapsed((c) => !c)} style={{ color: 'var(--text-dim)', textAlign: collapsed ? 'center' : 'left' }}
                 title={collapsed ? t('common.expand') : t('common.collapse')}>
                 {(() => { const icon = svg(collapsed ? <><polyline points="9 6 15 12 9 18" /></> : <><polyline points="15 6 9 12 15 18" /></>)
@@ -548,6 +558,7 @@ export default function App() {
           <Dropdown placement="top" trigger={['click']} menu={{ items: [
             { key: 'theme', icon: themeIcon, label: mode === 'dark' ? t('common.lightTheme') : t('common.darkTheme'), onClick: toggleTheme },
             ...(fsSupported ? [{ key: 'fs', icon: fsIcon, label: isFs ? t('common.exitFullscreen') : t('common.fullscreen'), onClick: toggleFs }] : []),
+            { key: 'about', icon: ICONS.github, label: t('nav.about'), onClick: () => go('about') },
             { type: 'divider' as const },
             { key: 'logout', danger: true, label: t('common.logout'), onClick: () => Modal.confirm({ title: t('common.logoutConfirm'), okText: t('common.logout'), cancelText: t('common.cancel'), okButtonProps: { danger: true }, onOk: logout }) },
           ] }}>
@@ -605,6 +616,7 @@ function SoloTerminal({ name }: { name: string }) {
         claudeMap={claudeMap} claudeView={claudeView} setClaudeView={setClaudeView}
         codexMap={codexMap} codexView={codexView} setCodexView={setCodexView}
         onRename={(_, newName) => { location.hash = '#/term/' + encodeURIComponent(newName) }}
+        fileDock="left"
       />
     </div>
   )
@@ -620,8 +632,10 @@ function TerminalPane(props: {
   claudeMap: Record<string, ClaudeInfo>; claudeView: Record<string, boolean>; setClaudeView: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
   codexMap: Record<string, ClaudeInfo>; codexView: Record<string, boolean>; setCodexView: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
   onRename: (oldName: string, newName: string) => void
+  fileDock?: 'right' | 'left'   // 文件面板停靠：'right'=右侧浮动抽屉（默认），'left'=左侧 VSCode 栏（新标签全屏页）
 }) {
   const { terms, active, setActive, closeTerm, fontSize, setFontSize, statusMap, setStatus, termRefs, sendKey, onCollapse, claudeMap, claudeView, setClaudeView, codexMap, codexView, setCodexView, onRename } = props
+  const fileDock = props.fileDock || 'right'
   const { message, modal } = AntApp.useApp()
   const { t } = useI18n()
   const st = active ? statusMap[active] : undefined
@@ -657,8 +671,64 @@ function TerminalPane(props: {
     savePreferences({ showVoiceButton: next })
   }
 
-  // 文件侧栏（终端视图下也可用）：定位到当前会话的工作目录
-  const [showFiles, setShowFiles] = useState(false)
+  // 文件侧栏（终端视图下也可用）：定位到当前会话的工作目录。左侧停靠时默认展开。
+  const [showFiles, setShowFiles] = useState(fileDock === 'left')
+  // VSCode 式编辑器 tab（仅左侧停靠的独立全屏页）：第一个 tab 永远是当前会话，
+  // 点文件浏览器里的文件 → 在会话 tab 右边开/激活一个文件 tab。activeFile=null 表示会话 tab。
+  const [openFiles, setOpenFiles] = useState<string[]>([])
+  const [activeFile, setActiveFile] = useState<string | null>(null)
+  const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(new Set()) // 有未保存改动的文件 tab
+  const setFileDirty = (p: string, dirty: boolean) => setDirtyFiles((prev) => {
+    if (prev.has(p) === dirty) return prev
+    const n = new Set(prev)
+    dirty ? n.add(p) : n.delete(p)
+    return n
+  })
+  const openFileTab = (p: string) => {
+    setOpenFiles((prev) => (prev.includes(p) ? prev : [...prev, p]))
+    setActiveFile(p)
+  }
+  const doCloseFileTab = (p: string) => {
+    const i = openFiles.indexOf(p)
+    const next = openFiles.filter((x) => x !== p)
+    setOpenFiles(next)
+    setFileDirty(p, false)
+    if (activeFile === p) setActiveFile(next[i - 1] ?? next[i] ?? null) // 关掉激活 tab → 落到左邻，否则会话 tab
+  }
+  const closeFileTab = (p: string) => {
+    if (dirtyFiles.has(p)) {
+      modal.confirm({
+        title: t('file.closeUnsavedTitle'),
+        content: pathBasename(p),
+        okText: t('file.closeWithoutSaving'),
+        cancelText: t('common.cancel'),
+        okButtonProps: { danger: true },
+        onOk: () => doCloseFileTab(p),
+      })
+    } else doCloseFileTab(p)
+  }
+  // 正在看文件 tab（左侧停靠全屏页）：底部会话输入/快捷键栏此时隐藏（#3）
+  const viewingFile = fileDock === 'left' && activeFile !== null
+  // 左侧文件停靠栏宽度：可拖拽调整，记 localStorage
+  const [dockW, setDockW] = useState(() => { const s = Number(localStorage.getItem('ttmux.fileDockW')); return s >= 160 && s <= 640 ? s : 280 })
+  const dockWRef = useRef(dockW)
+  dockWRef.current = dockW
+  const startDockResize = (e: React.PointerEvent) => {
+    e.preventDefault()
+    const startX = e.clientX, startW = dockW
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+    const move = (ev: PointerEvent) => setDockW(Math.min(640, Math.max(160, startW + ev.clientX - startX)))
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+      localStorage.setItem('ttmux.fileDockW', String(dockWRef.current))
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
   const [showGit, setShowGit] = useState(false)
   const [cwd, setCwd] = useState('')
   // 文件栏与 Git 面板共用右侧抽屉位，互斥显示。
@@ -687,6 +757,8 @@ function TerminalPane(props: {
     setDragOver(false)
     const mention = toMention(readDropPath(e))
     if (!mention || !active) return
+    // 分窗(tmux split pane)时：先按落点坐标激活对应 pane，@路径才会注入到拖放的那个窗格。
+    termRefs.current[active]?.selectPaneAt(e.clientX, e.clientY)
     exitCopyMode()
     termRefs.current[active]?.send(mention + ' ', true)
   }
@@ -879,7 +951,64 @@ function TerminalPane(props: {
       >
         <span style={{ position: 'fixed', left: ctx?.x ?? -1000, top: ctx?.y ?? -1000, width: 1, height: 1, pointerEvents: 'none' }} />
       </Dropdown>
-      {/* 标签栏 */}
+      {/* 独立全屏页（左侧文件停靠）：顶部细标题栏显示会话名，横跨左右；下面才是「左文件 / 右会话」 */}
+      {fileDock === 'left' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', borderBottom: '1px solid var(--border)', minHeight: 32 }}>
+          <span style={{ color: 'var(--text-bright)', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{active || ''}</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, background: 'var(--brand-grad)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Roam</span>
+        </div>
+      )}
+      {/* 内容主体：左侧文件停靠（贯通上下） + 右侧会话列 */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        {fileDock === 'left' && showFiles && (
+          <>
+            <div style={{ flex: `0 0 ${dockW}px`, minWidth: 0, minHeight: 0, display: 'flex' }}>
+              <FileBrowser dir={cwd} accent="#58a6ff" layout="dock" onClose={() => setShowFiles(false)} onOpenFile={openFileTab} selectedPath={activeFile} />
+            </div>
+            {/* 拖拽调宽的分隔条 */}
+            <div onPointerDown={startDockResize} title={t('file.dragResize')}
+              style={{ flex: '0 0 5px', cursor: 'col-resize', background: 'var(--border)', touchAction: 'none' }} />
+          </>
+        )}
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* VSCode 式编辑器 tab 条（右列最上）：第一个永远是当前会话，其后是点开的文件 tab */}
+      {fileDock === 'left' && (
+        <div style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid var(--border)', overflowX: 'auto', background: 'var(--bg-container)' }}>
+          <div onClick={() => setActiveFile(null)} title={active || ''}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, borderRight: '1px solid var(--border)',
+              color: activeFile === null ? 'var(--text-bright)' : 'var(--text-dim)',
+              background: activeFile === null ? 'var(--bg-base)' : 'transparent',
+              borderTop: `2px solid ${activeFile === null ? '#58a6ff' : 'transparent'}`,
+            }}>
+            <i style={{ width: 7, height: 7, borderRadius: '50%', background: active && statusMap[active] === 'connected' ? '#3fb950' : '#d29922' }} />
+            {active}
+          </div>
+          {openFiles.map((f) => {
+            const isDirty = dirtyFiles.has(f)
+            return (
+              <div key={f} onClick={() => setActiveFile(f)} title={f}
+                className={`cc-filetab${isDirty ? ' dirty' : ''}`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 8px 5px 10px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, borderRight: '1px solid var(--border)',
+                  color: activeFile === f ? 'var(--text-bright)' : 'var(--text-dim)',
+                  background: activeFile === f ? 'var(--bg-base)' : 'transparent',
+                  borderTop: `2px solid ${activeFile === f ? '#58a6ff' : 'transparent'}`,
+                }}>
+                <span style={{ display: 'inline-flex', transform: 'scale(0.72)' }}><FileTypeIcon name={f} /></span>
+                <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>{pathBasename(f)}</span>
+                {/* 关闭：脏文件平时显示橙点、hover tab 时变 ×（VSCode 行为）；干净文件常显 × */}
+                <a className="cc-tabx" onClick={(e) => { e.stopPropagation(); closeFileTab(f) }} title={isDirty ? t('file.unsaved') : t('file.closeTab')}>
+                  <span className="dot">●</span><span className="x">×</span>
+                </a>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {/* 标签栏（多会话）：单会话全屏页已用顶部标题栏代替，这里隐藏 */}
+      {fileDock !== 'left' && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
         {onCollapse && <Button size="small" type="text" style={{ color: 'var(--text-dim)' }} onClick={onCollapse}>✕ {t('common.collapse')}</Button>}
         {terms.map((termName) => (
@@ -897,8 +1026,10 @@ function TerminalPane(props: {
           </span>
         ))}
       </div>
+      )}
 
-      {/* 工具栏 */}
+      {/* 工具栏：终端控制条，只属会话（第一个 tab）——看文件 tab 时隐藏 */}
+      {!viewingFile && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-dim)', fontSize: 12 }}>
           <i style={{ width: 8, height: 8, borderRadius: '50%', background: dot }} />
@@ -955,6 +1086,7 @@ function TerminalPane(props: {
         <Tooltip title={t('terminal.increaseFont')}><Button size="small" onClick={() => setFontSize(Math.min(22, fontSize + 1))}>A+</Button></Tooltip>
         <Tooltip title={t('terminal.reconnect')}><Button size="small" onClick={() => active && termRefs.current[active]?.reconnect()}>{t('terminal.reconnectShort')}</Button></Tooltip>
       </div>
+      )}
 
       {/* 终端区（所有标签常驻，仅激活可见，保留滚动历史）。
           支持从文件/Git 面板把文件拖进来 → 以 @相对路径 注入当前会话。 */}
@@ -993,18 +1125,26 @@ function TerminalPane(props: {
               )}
             </div>
           ))}
+          {/* 文件 tab：每个都常驻挂载（保留未保存编辑/滚动），仅激活的覆盖在终端上方 */}
+          {fileDock === 'left' && openFiles.map((f) => (
+            <div key={f} style={{ position: 'absolute', inset: 0, zIndex: 6, background: 'var(--bg-base)', display: activeFile === f ? 'block' : 'none' }}>
+              <Viewer path={f} accent="#58a6ff" inline tabbed active={activeFile === f} onClose={() => closeFileTab(f)} onOpenPath={openFileTab} onDirtyChange={setFileDirty} />
+            </div>
+          ))}
         </div>
       </div>
-      <FloatingFileDrawer open={showFiles}>
-        <FileBrowser dir={cwd} accent="#58a6ff" onClose={() => setShowFiles(false)} />
-      </FloatingFileDrawer>
+      {fileDock === 'right' && (
+        <FloatingFileDrawer open={showFiles}>
+          <FileBrowser dir={cwd} accent="#58a6ff" onClose={() => setShowFiles(false)} />
+        </FloatingFileDrawer>
+      )}
       <FloatingFileDrawer open={showGit}>
         <GitPanel dir={cwd} accent="#58a6ff" onClose={() => setShowGit(false)} />
       </FloatingFileDrawer>
 
       {/* 移动端文字输入框：软键盘/输入法在 xterm 里会丢字，这里整行可靠发送到 PTY。
           对话视图(Claude/Codex)有自己的输入框，这里隐藏避免双输入框。 */}
-      {isTouch && !inChat && (
+      {isTouch && !inChat && !viewingFile && (
         <div style={{ display: 'flex', gap: 6, padding: '8px 8px 0' }} onDragOver={allowPathDrop} onDrop={onInputDrop}>
           <Input
             ref={mobileInputRef}
@@ -1020,8 +1160,8 @@ function TerminalPane(props: {
         </div>
       )}
 
-      {/* 快捷键栏：对话视图下隐藏（聊天 UI 不需要终端控制键，且避免与其输入区挤占） */}
-      {!inChat && (
+      {/* 快捷键栏：对话视图/查看文件 tab 时隐藏（这条输入/快捷键栏只属会话，见 #3） */}
+      {!inChat && !viewingFile && (
         <div style={{ display: 'flex', gap: 6, padding: 8, borderTop: '1px solid var(--border)', overflowX: 'auto' }}>
           <Button type="primary" onMouseDown={noBlur} onClick={() => (isTouch ? submitLine() : sendKey('\r'))}>Enter</Button>
           {(prefsData.quickCommands || []).map((cmd) => (
@@ -1046,6 +1186,8 @@ function TerminalPane(props: {
           }}>{t('quickCmd.add')}</Button>
         </div>
       )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -1903,6 +2045,37 @@ function PhoneSettingsCard() {
       {renderCard('ios')}
       {log && <pre style={{ maxHeight: 160, overflow: 'auto', margin: 0, padding: 8, fontSize: 11, lineHeight: 1.5, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', borderRadius: 6, whiteSpace: 'pre-wrap' }}>{log}</pre>}
     </Space>
+  )
+}
+
+// 关于页：Logo / 版本号 / GitHub 仓库链接（版本取自 /api/info 的 ttmux CLI 版本）
+function AboutPage() {
+  const { t } = useI18n()
+  const [version, setVersion] = useState('')
+  useEffect(() => { api('GET', '/info').then((d: any) => setVersion(d?.version || '')).catch(() => {}) }, [])
+  return (
+    <Card style={{ maxWidth: 520, margin: '0 auto' }}>
+      <Space direction="vertical" size={18} align="center" style={{ width: '100%', padding: '28px 0' }}>
+        <img src="/logo-mark.svg" width={72} height={72} alt="Roam"
+          style={{ borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,.5)' }} />
+        <div style={{
+          fontWeight: 800, fontSize: 28, letterSpacing: 0.5,
+          background: 'var(--brand-grad)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent',
+        }}>Roam</div>
+        <p style={{ color: 'var(--text-dim)', fontSize: 13, lineHeight: 1.7, margin: 0, textAlign: 'left', maxWidth: 420 }}>
+          {t('about.intro')}
+        </p>
+        {version && (
+          <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>
+            {t('settings.version')} <code>{version}</code>
+          </div>
+        )}
+        <a href="https://github.com/ybz21/roam" target="_blank" rel="noreferrer"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--text-bright)', fontSize: 14 }}>
+          {ICONS.github}<span>github.com/ybz21/roam</span>
+        </a>
+      </Space>
+    </Card>
   )
 }
 
