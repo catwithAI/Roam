@@ -65,9 +65,8 @@ func ListJSON(rt runtime.Runtime, exclude map[string]bool, w io.Writer) error {
 
 func InfoJSON(rt runtime.Runtime, version string, exclude map[string]bool, w io.Writer) error {
 	sessions := 0
-	out, _ := rt.TmuxOutput("list-sessions", "-F", "#{session_name}")
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if name := strings.TrimSpace(line); name != "" && !exclude[name] {
+	for _, name := range rt.Sessions() {
+		if !exclude[name] {
 			sessions++
 		}
 	}
