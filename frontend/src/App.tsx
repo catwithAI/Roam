@@ -347,7 +347,9 @@ export default function App() {
   }
   const anyClaude = terms.some((t) => claudeMap[t]?.running || codexMap[t]?.running)
   const docked = hasSider && terms.length > 0 && dockOpen // 桌面停靠栏已展开
-  const defaultDockWidth = tab === 'sessions' || tab === 'overview' || tab === 'swarm' || tab === 'settings' || tab === 'phone' ? 420 : 300
+  const dockResizesPage = docked && tab !== 'browser'
+  const filesDefaultWidth = typeof window === 'undefined' ? 640 : Math.round((window.innerWidth - (collapsed ? 64 : 208) - 18) * 0.5)
+  const defaultDockWidth = tab === 'files' ? Math.max(520, Math.min(900, filesDefaultWidth)) : tab === 'sessions' || tab === 'overview' || tab === 'swarm' || tab === 'settings' || tab === 'phone' ? 420 : 300
   const dockPageWidth = customDockWidth ?? defaultDockWidth
   const setStatus = (name: string, s: TermStatus) => setStatusMap((m) => ({ ...m, [name]: s }))
   const sendKey = (seq: string) => active && termRefs.current[active]?.send(seq)
@@ -383,7 +385,7 @@ export default function App() {
   const pages: any = {
     overview: <Overview go={go} openTerm={openTerm} />,
     swarm: <Swarm openTerm={openTerm} initialSwarm={swarmSub || undefined} onNav={(n) => { location.hash = n ? '#/swarm/' + encodeURIComponent(n) : '#/swarm' }} />,
-    sessions: <Sessions openTerm={openTerm} closeTerm={closeTerm} />,
+    sessions: <Sessions openTerm={openTerm} closeTerm={closeTerm} activeTerm={active} />,
     files: <FilesPage openTerm={openTerm} />,
     settings: <EnvPage />,
     browser: <BrowserView />,
@@ -460,8 +462,8 @@ export default function App() {
         <div style={{ display: 'flex', height: '100dvh', minHeight: 0 }}>
           <Content style={{
             // 终端弹出时左侧页面保留可读宽度；继续向左扩展(dockMax)则收到 0、被终端遮住
-            flex: docked && tab !== 'browser' && tab !== 'files' ? (dockMax ? '0 0 0px' : `0 0 ${dockPageWidth}px`) : 1,
-            width: docked && tab !== 'browser' && tab !== 'files' ? (dockMax ? 0 : dockPageWidth) : 'auto', minWidth: 0,
+            flex: dockResizesPage ? (dockMax ? '0 0 0px' : `0 0 ${dockPageWidth}px`) : 1,
+            width: dockResizesPage ? (dockMax ? 0 : dockPageWidth) : 'auto', minWidth: 0,
             height: '100dvh', overflow: tab === 'browser' || tab === 'phone' || tab === 'files' ? 'hidden' : 'auto',
             padding: 0,
             transition: customDockWidth != null ? 'none' : 'flex-basis .2s, width .2s',
@@ -683,6 +685,12 @@ function TerminalPane(props: {
 
   // 从文件/Git 面板把文件拖到终端 → 插入为 @绝对路径。
   const [dragOver, setDragOver] = useState(false)
+  useEffect(() => {
+    const clear = () => setDragOver(false)
+    document.addEventListener('dragend', clear)
+    document.addEventListener('drop', clear, true)
+    return () => { document.removeEventListener('dragend', clear); document.removeEventListener('drop', clear, true) }
+  }, [])
   // 拖拽载荷就是文件绝对路径，原样作为 @mention（不转相对路径）。
   const toMention = (raw: string) => {
     const p = raw.trim()
@@ -1392,14 +1400,34 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
   const [dir, setDir] = useState('')
   const [pick, setPick] = useState(false)
   const [agent, setAgent] = useState<'none' | 'claude' | 'codex'>('none')
+  const [worktree, setWorktree] = useState(false)
+  const [isGitRepo, setIsGitRepo] = useState(false)
+  const [creating, setCreating] = useState(false)
   const { message } = AntApp.useApp()
   const { t } = useI18n()
   const [prefs] = usePreferences()
-  useEffect(() => { if (open) { setName(''); setDir(''); setAgent('none') } }, [open])
+  useEffect(() => { if (open) { setName(''); setDir(''); setAgent('none'); setWorktree(false); setIsGitRepo(false) } }, [open])
+  useEffect(() => {
+    const d = dir.trim()
+    if (!d) { setIsGitRepo(false); return }
+    let cancelled = false
+    api('GET', `/git/is-repo?path=${encodeURIComponent(d)}`).then((r) => {
+      if (!cancelled) setIsGitRepo(!!r?.data?.repo)
+    }).catch(() => { if (!cancelled) setIsGitRepo(false) })
+    return () => { cancelled = true }
+  }, [dir])
   const ok = async () => {
     if (!name.trim()) return message.error(t('session.nameRequired'))
+    let worktreePath = ''
     try {
-      const res = await api('POST', '/sessions', { name: name.trim(), dir: dir.trim() })
+      setCreating(true)
+      let sessionDir = dir.trim()
+      if (worktree && isGitRepo && sessionDir) {
+        const wt = await api('POST', '/git/worktree', { dir: sessionDir })
+        worktreePath = wt?.data?.path || ''
+        if (worktreePath) sessionDir = worktreePath
+      }
+      const res = await api('POST', '/sessions', { name: name.trim(), dir: sessionDir })
       const actual = res.name || name.trim()
       if (agent !== 'none') {
         const cmd = agent === 'claude' ? (prefs.claudeCommand || 'claude') : (prefs.codexCommand || 'codex')
@@ -1407,11 +1435,18 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
       }
       pushRecentDir(dir); message.success(t('session.created')); onClose(); onDone(actual)
     }
-    catch (e: any) { message.error(e.message) }
+    catch (e: any) {
+      if (worktreePath) {
+        api('POST', '/git/worktree/remove', { path: worktreePath }).catch(() => {})
+      }
+      message.error(e.message)
+    }
+    finally { setCreating(false) }
   }
   return (
     <>
-      <Modal open={open} onCancel={onClose} onOk={ok} okText={t('file.create')} title={t('session.new')} destroyOnClose>
+      <Modal open={open} onCancel={onClose} onOk={ok} okText={t('file.create')} title={t('session.new')} destroyOnClose
+        confirmLoading={creating}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <Input placeholder={t('session.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
           <Space.Compact style={{ width: '100%' }}>
@@ -1431,6 +1466,12 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
                   </Tag>
                 </Tooltip>
               ))}
+            </div>
+          )}
+          {isGitRepo && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Switch size="small" checked={worktree} onChange={setWorktree} />
+              <span style={{ fontSize: 13 }}>{t('session.worktreeMode')}</span>
             </div>
           )}
           <Radio.Group value={agent} onChange={(e) => setAgent(e.target.value)} optionType="button" buttonStyle="solid"
@@ -1475,7 +1516,7 @@ function RenameSessionModal({ session, onClose, onDone }: { session: string | nu
 }
 
 // ── 会话（可新建/指定目录 / 进终端 / 关闭） ──
-function Sessions({ openTerm, closeTerm }: { openTerm: (n: string) => void; closeTerm: (n: string) => void }) {
+function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) => void; closeTerm: (n: string) => void; activeTerm: string | null }) {
   const [list, setList] = useState<any[]>([])
   const [cc, setCc] = useState<Record<string, boolean>>({})
   const [cx, setCx] = useState<Record<string, boolean>>({})
@@ -1617,15 +1658,23 @@ function Sessions({ openTerm, closeTerm }: { openTerm: (n: string) => void; clos
               const connected = s.attached == 1
               const agent = cc[s.name] ? 'claude' : cx[s.name] ? 'codex' : null
               const waiting = !!needsInput[s.name]
+              const activeRow = activeTerm === s.name
               return (
                 // 整行点击直接进入终端；右侧操作区 stopPropagation 不触发进入
-                <List.Item style={{ padding: '10px 8px', cursor: 'pointer' }} onClick={() => openTerm(s.name)}>
+                <List.Item style={{
+                  position: 'relative', overflow: 'hidden',
+                  padding: '10px 8px 10px 12px', cursor: 'pointer', borderRadius: 8,
+                  background: activeRow ? 'linear-gradient(90deg, rgba(31,111,235,.38), rgba(31,111,235,.16))' : undefined,
+                  border: activeRow ? '1px solid #58a6ff' : '1px solid transparent',
+                  boxShadow: activeRow ? '0 0 0 1px rgba(88,166,255,.18), 0 0 18px rgba(31,111,235,.14)' : undefined,
+                }} onClick={() => openTerm(s.name)}>
+                  {activeRow && <span aria-hidden style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: '#58a6ff' }} />}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                       <i title={waiting ? t('prompt.confirmRequired') : connected ? t('terminal.status.connected') : t('terminal.status.idle')} style={{ width: 8, height: 8, borderRadius: '50%', flex: '0 0 8px', background: waiting ? '#d29922' : connected ? '#3fb950' : 'var(--text-dimmer)' }} />
                       <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 600, color: 'var(--text-bright)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.name}>{s.name}</span>
+                          <span style={{ fontWeight: 700, color: activeRow ? '#fff' : 'var(--text-bright)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.name}>{s.name}</span>
                           {sw && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>{t('nav.swarm')}:{sw.swarm}{sw.role === 'leader' ? `·${t('swarm.master')}` : ''}</Tag>}
                           {waiting && <Tag color="warning" style={{ margin: 0, flex: '0 0 auto' }}>{t('session.waiting')}</Tag>}
                           {cc[s.name] && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>✳ Claude</Tag>}

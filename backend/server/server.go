@@ -85,6 +85,10 @@ func New(cfg Config) *gin.Engine {
 
 	// 受保护端点
 	g := r.Group("/api", a.Middleware())
+	// API 返回的都是动态数据（会话状态、文件内容/元信息…）。移动端(Safari/WebView)与反代会对
+	// 无 Cache-Control 的 GET 做启发式缓存，导致文件实时重载轮询的 /file/stat 一直拿到旧 mtime
+	// → 不刷新。统一禁缓存，兜底前端的 cache:no-store。
+	g.Use(func(c *gin.Context) { c.Header("Cache-Control", "no-store") })
 	{
 		g.GET("/me", h.Me)
 		g.GET("/info", h.Info)
@@ -97,17 +101,23 @@ func New(cfg Config) *gin.Engine {
 		g.GET("/file/raw", h.FileRaw)         // 文件侧栏：原始字节（图片预览 / ?dl=1 下载）
 		g.GET("/file/preview", h.FilePreview) // 文件侧栏：Office 转 PDF 预览
 		g.GET("/file/stat", h.FileStat)
+		g.GET("/file/download", h.FileDownload)
+		g.POST("/file/rename", h.FileRename)
+		g.POST("/file/copy", h.FileCopy)
 		g.DELETE("/file", h.FileDelete)
 		g.POST("/file/mkdir", h.FileMkdir) // 文件侧栏：在当前目录新建子目录
 		g.POST("/upload", h.Upload)        // 上传文件到指定目录（拖拽到对话框 / 文件侧栏）
 
-		g.GET("/git/status", h.GitStatus)    // Git 面板：当前工作目录所属仓库状态
-		g.GET("/git/diff", h.GitDiff)        // Git 面板：单文件差异
-		g.POST("/git/stage", h.GitStage)     // 暂存
-		g.POST("/git/unstage", h.GitUnstage) // 取消暂存
-		g.POST("/git/discard", h.GitDiscard) // 放弃改动
-		g.POST("/git/commit", h.GitCommit)   // 提交（可选 push）
-		g.POST("/git/op", h.GitOp)           // push / pull / fetch / sync
+		g.GET("/git/status", h.GitStatus)                   // Git 面板：当前工作目录所属仓库状态
+		g.GET("/git/diff", h.GitDiff)                       // Git 面板：单文件差异
+		g.POST("/git/stage", h.GitStage)                    // 暂存
+		g.POST("/git/unstage", h.GitUnstage)                // 取消暂存
+		g.POST("/git/discard", h.GitDiscard)                // 放弃改动
+		g.POST("/git/commit", h.GitCommit)                  // 提交（可选 push）
+		g.POST("/git/op", h.GitOp)                          // push / pull / fetch / sync
+		g.POST("/git/worktree", h.GitWorktreeAdd)           // 新建 worktree
+		g.POST("/git/worktree/remove", h.GitWorktreeRemove) // 移除 worktree
+		g.GET("/git/is-repo", h.GitIsRepo)                  // 检查是否 git 仓库
 
 		g.GET("/sessions", h.Sessions)
 		g.POST("/sessions", h.NewSession)
