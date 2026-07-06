@@ -14,6 +14,10 @@ export default defineConfig({
         // 把第三方库按用途拆成独立 vendor 块：避免挤成一个 ~3MB 巨块，
         // 各块可被浏览器分别缓存（改业务代码不致使整包失效），按需并行加载。
         manualChunks(id) {
+          // Vite 动态 import 的 preload 辅助模块被所有含懒加载的 chunk 共享。不显式指定时
+          // rollup 可能把它塞进某个懒加载重块（曾落入 monaco 块 → index 静态依赖 monaco，
+          // 4.3MB JS + 146KB 阻塞 CSS 全进首屏，懒加载失效）。固定进 vendor（入口本就依赖）。
+          if (id.includes('vite/preload-helper')) return 'vendor'
           if (!id.includes('node_modules')) return
           // Office 预览（docx/xlsx/pptx）很重，仅看 Office 文件时才用 → 独立块（配合 FileBrowser 懒加载按需取）
           if (/docx-preview|xlsx|pptx|jvmr/.test(id)) return 'office'
