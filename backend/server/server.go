@@ -8,6 +8,7 @@ package server
 import (
 	_ "embed"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -244,7 +245,33 @@ func mountWeb(r *gin.Engine, frontendDir string) {
 	useReact := fileExists(indexPath)
 
 	if useReact {
-		r.Static("/assets", filepath.Join(frontendDir, "assets"))
+		assetsDir := filepath.Join(frontendDir, "assets")
+		serveAsset := func(c *gin.Context) {
+			fp := filepath.Join(assetsDir, filepath.Clean("/"+c.Param("filepath")))
+			if !strings.HasPrefix(fp, assetsDir) || !fileExists(fp) {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			// 产物文件名带内容 hash（内容变则名变），可放心让浏览器缓存一年且免回源验证；
+			// 否则每次打开页面都对全部 JS/CSS 发条件请求甚至重新下载，首屏明显变慢。
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+			c.Header("Vary", "Accept-Encoding")
+			// 构建期预压缩的 .gz 旁路文件（见 frontend/scripts/compress-dist.mjs）：
+			// 客户端支持 gzip 就直接下发，几 MB 的 JS 传输量降到约 1/3。
+			if gz := fp + ".gz"; strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") && fileExists(gz) {
+				ct := mime.TypeByExtension(filepath.Ext(fp))
+				if ct == "" {
+					ct = "application/octet-stream"
+				}
+				c.Header("Content-Type", ct)
+				c.Header("Content-Encoding", "gzip")
+				c.File(gz)
+				return
+			}
+			c.File(fp)
+		}
+		r.GET("/assets/*filepath", serveAsset)
+		r.HEAD("/assets/*filepath", serveAsset)
 		log.Printf("前端: React (磁盘 %s)", frontendDir)
 	} else {
 		log.Printf("前端: 内嵌回退页 —— 运行 ./start.sh --dev 会构建 React")
