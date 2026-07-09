@@ -35,6 +35,8 @@
 }
 
 html, body, #root { height: 100%; margin: 0; }
+/* 禁掉移动端「下拉刷新」与滚动链/边缘回弹：轻微下拉不再误触整页刷新 */
+html, body { overscroll-behavior: none; }
 body {
   background: var(--bg-base);
   /* 精修字体栈：优先界面无衬线 + 中文黑体；数字等宽对齐更整齐 */
@@ -87,6 +89,11 @@ body {
 }
 *::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: content-box; }
 *::-webkit-scrollbar-corner { background: transparent; }
+
+/* 会话工具栏：单行横向滑动（手机上原本换行占 3 行）；子项不收缩、隐藏滚动条 */
+.tt-session-toolbar > * { flex: 0 0 auto; }
+.tt-session-toolbar { scrollbar-width: none; }
+.tt-session-toolbar::-webkit-scrollbar { height: 0; width: 0; }
 
 /* 选区色：主色低透明，克制 */
 ::selection { background: rgba(88, 166, 255, 0.26); }

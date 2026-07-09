@@ -1,7 +1,7 @@
 // 对话页外壳：头部 / 滚动区 / 交互选择框 / 输入发送 / 文件侧栏。
 // Claude、Codex 共用，差异只在 title、accent、占位文案与消息渲染(renderMessage)。
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Input, App as AntApp } from 'antd'
+import { Button, Grid, Input, App as AntApp } from 'antd'
 import { api, upload, makeClipboardImageFile } from '../api'
 import FileBrowser from '../FileBrowser'
 import FloatingFileDrawer from '../FloatingFileDrawer'
@@ -38,9 +38,13 @@ export function ChatShell({ name, dir, accent, title, placeholder, onBack, onRef
   const atBottom = useRef(true)
   const { message } = AntApp.useApp()
   const { t } = useI18n()
+  const screens = Grid.useBreakpoint()
+  const isMobile = !screens.md // 手机窄屏：输入区换成「文本框独占一行 + 按钮行」竖排，避免挤成一坨
 
+  // 把文本追加进输入框末尾（语音识别结果 / 路径插入共用）
+  const appendText = (s: string) => setInput((v) => (v ? v.replace(/\s*$/, ' ') : '') + s + ' ')
   // 把路径插进输入框（文件侧栏「@」按钮 / 拖拽 / 上传后共用）
-  const insertPath = (p: string) => setInput((v) => (v ? v.replace(/\s*$/, ' ') : '') + p + ' ')
+  const insertPath = (p: string) => appendText(p)
 
   // 图片上传到 /tmp 并把完整路径插进输入框（等同桌面 Ctrl+V：不污染工作目录，模型按绝对路径读取）
   const uploadImagesToTmp = async (images: File[]) => {
@@ -162,7 +166,7 @@ export function ChatShell({ name, dir, accent, title, placeholder, onBack, onRef
           <Button size="small" onClick={onBack}>{t('chat.backToTerminal')}</Button>
         </div>
         <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex' }}>
-          <div ref={boxRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 12px' }}>
+          <div ref={boxRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', padding: '8px 12px' }}>
             {messages.length === 0 && !pending && <div style={{ color: 'var(--text-dim)', textAlign: 'center', marginTop: 30 }}>{t('chat.loadingTranscript')}</div>}
             {hidden > 0 && (
               <div style={{ textAlign: 'center', margin: '2px 0 8px' }}>
@@ -183,21 +187,42 @@ export function ChatShell({ name, dir, accent, title, placeholder, onBack, onRef
         {/* 交互式选择框（权限确认/选项菜单）：检测到才显示，可点选 */}
         <PromptPanel name={name} accent={accent} />
         {errMsg && <div style={{ color: '#f85149', fontSize: 12, padding: '2px 12px' }}>{errMsg}</div>}
-        <div style={{ display: 'flex', gap: 8, padding: 10, borderTop: '1px solid var(--border)', alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 8, padding: 10, borderTop: '1px solid var(--border)', alignItems: isMobile ? 'stretch' : 'flex-end' }}>
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
             onChange={(e) => { const fs = e.target.files ? Array.from(e.target.files) : []; e.target.value = ''; if (fs.length) doUpload(fs) }} />
-          <Button title={t('chat.uploadToCwd')} loading={uploading} onClick={() => fileRef.current?.click()}>📎</Button>
-          <Input.TextArea
-            value={input} onChange={(e) => setInput(e.target.value)}
-            autoSize={{ minRows: 1, maxRows: 5 }} placeholder={placeholder}
-            onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); send() } }}
-            onPaste={onPaste}
-          />
-          {busy && <Button danger title={t('chat.stopTitle')} onClick={stop}>{t('chat.stop')}</Button>}
-          <Button type="primary" loading={sending} onClick={send} style={{ background: accent, borderColor: accent }}>{t('common.send')}</Button>
+          {isMobile ? (
+            // 手机端：文本框独占一行，操作钮（📎 / 语音 / 停止 / 发送）另起一行，语音钮内联进按钮行避免悬浮遮挡。
+            <>
+              <Input.TextArea
+                value={input} onChange={(e) => setInput(e.target.value)}
+                autoSize={{ minRows: 1, maxRows: 6 }} placeholder={placeholder}
+                onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); send() } }}
+                onPaste={onPaste}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Button shape="circle" title={t('chat.uploadToCwd')} loading={uploading} onClick={() => fileRef.current?.click()}>📎</Button>
+                <VoiceInput inline accent={accent} onResult={appendText} />
+                <span style={{ flex: 1 }} />
+                {busy && <Button danger title={t('chat.stopTitle')} onClick={stop}>{t('chat.stop')}</Button>}
+                <Button type="primary" loading={sending} onClick={send} style={{ background: accent, borderColor: accent }}>{t('common.send')}</Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <Button title={t('chat.uploadToCwd')} loading={uploading} onClick={() => fileRef.current?.click()}>📎</Button>
+              <Input.TextArea
+                value={input} onChange={(e) => setInput(e.target.value)}
+                autoSize={{ minRows: 1, maxRows: 5 }} placeholder={placeholder}
+                onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); send() } }}
+                onPaste={onPaste}
+              />
+              {busy && <Button danger title={t('chat.stopTitle')} onClick={stop}>{t('chat.stop')}</Button>}
+              <Button type="primary" loading={sending} onClick={send} style={{ background: accent, borderColor: accent }}>{t('common.send')}</Button>
+            </>
+          )}
         </div>
-        {/* 右下角悬浮语音按钮：长按说话，识别后回填到输入框，由用户再编辑/发送 */}
-        <VoiceInput accent={accent} onResult={(text) => setInput((v) => (v ? v.replace(/\s*$/, ' ') : '') + text + ' ')} />
+        {/* 桌面端右下角悬浮语音按钮（长按说话，识别回填输入框）；手机端已内联到按钮行。 */}
+        {!isMobile && <VoiceInput accent={accent} onResult={appendText} />}
       </div>
       <FloatingFileDrawer open={showFiles}>
         <FileBrowser dir={dir} accent={accent} onClose={() => setShowFiles(false)} onInsertPath={insertPath} />
