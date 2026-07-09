@@ -85,7 +85,7 @@ if [ -n "$staged" ]; then
     exit 1
   fi
   if printf '%s\n' "$staged" | grep -Eq '(^|/)\.env$'; then
-    echo ".env must not be committed. Commit .env.example changes instead." >&2
+    echo ".env must not be committed. Use configs/config.yaml.template for documented config instead." >&2
     exit 1
   fi
 fi

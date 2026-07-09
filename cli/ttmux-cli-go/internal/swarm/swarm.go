@@ -64,13 +64,13 @@ type swarmMeta struct {
 
 func DefaultOptions() Options {
 	home, _ := os.UserHomeDir()
-	homeDir := os.Getenv("TTMUX_HOME")
+	homeDir := firstEnv("ROAM_HOME", "TTMUX_HOME")
 	if homeDir == "" {
-		homeDir = filepath.Join(home, ".ttmux")
+		homeDir = filepath.Join(home, ".roam")
 	}
-	dataDir := os.Getenv("TTMUX_DATA")
+	dataDir := firstEnv("ROAM_DATA", "TTMUX_DATA")
 	if dataDir == "" {
-		dataDir = filepath.Join(home, ".local", "share", "ttmux")
+		dataDir = homeDir
 	}
 	tmux := os.Getenv("TMUX_BIN")
 	if tmux == "" {
@@ -86,6 +86,16 @@ func DefaultOptions() Options {
 		TmuxBin: tmux,
 		Now:     time.Now,
 	}
+}
+
+// firstEnv 返回首个非空环境变量值（用于 ROAM_* 主键 + 旧 TTMUX_* 兼容）。
+func firstEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (o Options) withDefaults() Options {

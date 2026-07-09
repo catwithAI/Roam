@@ -39,7 +39,7 @@ type inboxItem struct {
 
 // ── workspace ──
 
-// workspaceDir resolves the concierge home(默认 ~/.ttmux/plugins/im/workspace)。
+// workspaceDir resolves the concierge home(默认 ~/.roam/plugins/im/workspace)。
 func workspaceDir(ctx *sdk.Ctx) string {
 	dir := strings.TrimSpace(ctx.Config["workspace"])
 	if dir == "" {
@@ -47,7 +47,7 @@ func workspaceDir(ctx *sdk.Ctx) string {
 		if err != nil {
 			home = "."
 		}
-		dir = filepath.Join(home, ".ttmux", "plugins", "im", "workspace")
+		dir = filepath.Join(home, ".roam", "plugins", "im", "workspace")
 	} else if strings.HasPrefix(dir, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			dir = filepath.Join(home, dir[2:])

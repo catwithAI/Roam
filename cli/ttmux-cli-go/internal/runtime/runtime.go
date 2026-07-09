@@ -23,9 +23,13 @@ type Runtime struct {
 
 func New() Runtime {
 	home, _ := os.UserHomeDir()
-	dataDir := envOr("TTMUX_DATA", filepath.Join(home, ".local", "share", "ttmux"))
+	// Roam 主目录 ~/.roam（数据/配置根）。优先 ROAM_HOME，兼容旧 TTMUX_HOME。
+	homeDir := envOr("ROAM_HOME", envOr("TTMUX_HOME", filepath.Join(home, ".roam")))
+	MigrateLegacyHome(homeDir) // 首次把 ~/.ttmux 与旧运行时数据并入 ~/.roam
+	// 运行时数据默认与主目录同根；可用 ROAM_DATA 覆盖（兼容旧 TTMUX_DATA）。
+	dataDir := envOr("ROAM_DATA", envOr("TTMUX_DATA", homeDir))
 	return Runtime{
-		HomeDir:   envOr("TTMUX_HOME", filepath.Join(home, ".ttmux")),
+		HomeDir:   homeDir,
 		DataDir:   dataDir,
 		LogsDir:   filepath.Join(dataDir, "logs"),
 		GroupsDir: filepath.Join(dataDir, "groups"),
@@ -34,6 +38,49 @@ func New() Runtime {
 		TmuxBin:   envOrLookup("TMUX_BIN", "tmux"),
 		Now:       time.Now,
 	}
+}
+
+// MigrateLegacyHome 首次启动时把旧目录并入 Roam 主目录（默认 ~/.roam）：
+//   - ~/.ttmux → ~/.roam（整体改名，含 meta.db/swarms/plugins）
+//   - ~/.local/share/ttmux/* → ~/.roam（旧运行时数据：logs/groups/meta/env/agents/tls…）
+//
+// 幂等：目标已存在即跳过。设置了 ROAM_HOME/TTMUX_HOME/ROAM_DATA/TTMUX_DATA 任一自定义路径时不迁移。
+func MigrateLegacyHome(roamHome string) {
+	if os.Getenv("ROAM_HOME") != "" || os.Getenv("TTMUX_HOME") != "" ||
+		os.Getenv("ROAM_DATA") != "" || os.Getenv("TTMUX_DATA") != "" {
+		return
+	}
+	if _, err := os.Stat(roamHome); err == nil {
+		return // 已迁移
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	if legacy := filepath.Join(home, ".ttmux"); dirExists(legacy) {
+		if err := os.Rename(legacy, roamHome); err != nil {
+			return
+		}
+	}
+	// 合并旧运行时数据目录的各子项（不覆盖已存在的目标）。
+	legacyData := filepath.Join(home, ".local", "share", "ttmux")
+	entries, err := os.ReadDir(legacyData)
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(roamHome, 0o755)
+	for _, e := range entries {
+		dst := filepath.Join(roamHome, e.Name())
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		}
+		_ = os.Rename(filepath.Join(legacyData, e.Name()), dst)
+	}
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 // Version is the ttmux CLI version reported by the Go binary.

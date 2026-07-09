@@ -1,97 +1,178 @@
 #!/usr/bin/env bash
 #
-# ttmux 部署编排器（瘦壳）。真正的逻辑在 scripts/ 下分模块：
+# Roam 服务器安装器 —— 下载单一自包含二进制并注册为常驻服务（systemd）。
 #
-#   scripts/install/lib/common.sh      颜色 + 日志助手
-#   scripts/install/lib/platform.sh    平台/架构检测 + 包管理辅助
-#   scripts/install/lib/github.sh      release 下载助手
-#   scripts/install/preflight.sh       系统检查（tmux / 目录）
-#   scripts/install/install-ttmux.sh   [1/3] ttmux CLI + skills + 补全
-#   scripts/install/install-chrome.sh  [2/3] node + playwright + chrome CLI
-#   scripts/install/install-backend.sh [3/3] 构建后端产物（dist + 二进制），不启动
+# 一行安装（推荐）：
+#   curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
 #
-# 一行安装（k3s 风格）：
-#   curl -sfL https://raw.githubusercontent.com/ybz21/ttmux/main/install.sh | bash
-#
-# 本地 checkout 直接 source scripts/*；curl|bash 远程则按需从 GitHub raw 下载各模块。
-# 装完只产出产物、不启动服务；启动用：bash start.sh  /  bash start.sh --dev
+# roam 是自包含二进制（内嵌前端 + ttmux CLI），目标机无需 go/node/npm。
+# 配置与数据都在 ~/.roam/（首次启动自动生成 config.yaml）。首次打开网页设置登录口令。
 #
 # 环境开关：
-#   TTMUX_SKIP_BACKEND=1     只装 CLI/chrome，不构建后端
-#   TTMUX_INSTALL_BRANCH=xx  远程拉取模块/skills 用的分支（默认 main）
+#   ROAM_VERSION=vX.Y.Z   指定版本（默认 latest）
+#   ROAM_BIN_DIR=DIR      安装目录（默认 ~/.local/bin）
+#   ROAM_NO_SERVICE=1     只装二进制，不注册 systemd 服务
+#   ROAM_SYSTEM=1         注册系统级 systemd 服务（/etc/systemd/system，需 root/sudo）
+#   ROAM_FROM_SOURCE=1    在仓库 clone 内从源码构建（需 go+node），而非下载 release
 #
-
+# 开发/源码构建请用 start.sh --dev（会从源码构建 CLI/chrome/skills + 前后端）。
+#
 set -euo pipefail
 
-# ── 配置 ─────────────────────────────────────────────────────────
-REPO="ybz21/ttmux"
-BRANCH="${TTMUX_INSTALL_BRANCH:-main}"
-INSTALL_DIR="${HOME}/.local/bin"
-SKILL_DIR="${HOME}/.claude/skills"
-DATA_DIR="${HOME}/.local/share/ttmux"
+REPO="ybz21/Roam"
+VERSION="${ROAM_VERSION:-latest}"
+BIN_DIR="${ROAM_BIN_DIR:-${HOME}/.local/bin}"
+SERVICE_NAME="roam"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "$PWD")"
-GO_SRC="${SCRIPT_DIR}/cli/ttmux-cli-go"
-TTMUX_BUILD="${SCRIPT_DIR}/cli/ttmux-cli/build.sh"
-CHROME_BUILD="${SCRIPT_DIR}/cli/chrome-cli/build.sh"
-# cc-swarm 子文档拼接顺序(生命周期)；与 skills/sync-skills.sh 保持一致。
-CC_SWARM_DOCS="intake decompose spawn patrol approve test-push review concurrency integrate memory"
-
-# ── 模块加载：本地有就 source；curl|bash 远程则下载到临时目录再 source ──
-if [[ -d "${SCRIPT_DIR}/scripts" ]]; then
-    MODULE_BASE="${SCRIPT_DIR}/scripts"
+# ── 输出助手 ─────────────────────────────────────────────────────
+if [ -t 1 ]; then
+  bold=$'\e[1m'; dim=$'\e[2m'; green=$'\e[32m'; cyan=$'\e[36m'; yellow=$'\e[33m'; reset=$'\e[0m'
 else
-    MODULE_BASE="$(mktemp -d)"
-    trap 'rm -rf "$MODULE_BASE"' EXIT
+  bold=''; dim=''; green=''; cyan=''; yellow=''; reset=''
 fi
+info() { echo -e " ${green}✔${reset} $*"; }
+step() { echo -e " ${cyan}●${reset} $*"; }
+warn() { echo -e "  ${yellow}⚠ $*${reset}"; }
+die()  { echo -e " ✘ $*" >&2; exit 1; }
 
-load() {  # <scripts/ 下的相对路径>
-    local rel="$1"
-    local dst="${MODULE_BASE}/${rel}"
-    if [[ ! -f "$dst" ]]; then
-        mkdir -p "$(dirname "$dst")"
-        curl -fsSL "https://raw.githubusercontent.com/${REPO}/${BRANCH}/scripts/${rel}" -o "$dst" \
-            || { echo " ✘ 下载模块失败: scripts/${rel}（分支 ${BRANCH}）" >&2; exit 1; }
-    fi
-    # shellcheck disable=SC1090
-    source "$dst"
+# ── 平台检测 → release 资产名 roam-<os>-<arch> ───────────────────
+detect_asset() {
+  local os arch
+  case "$(uname -s)" in
+    Linux)  os=linux ;;
+    Darwin) os=darwin ;;
+    *) die "暂不支持的系统: $(uname -s)（支持 Linux / macOS）" ;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64)  arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) die "暂不支持的架构: $(uname -m)（支持 amd64 / arm64）" ;;
+  esac
+  OS="$os"; ASSET="roam-${os}-${arch}"
 }
 
-load install/lib/common.sh
-load install/lib/platform.sh
-load install/lib/github.sh
-load install/preflight.sh
-load install/install-ttmux.sh
-load install/install-chrome.sh
-load install/install-backend.sh
+download_url() {
+  if [ "$VERSION" = latest ]; then
+    echo "https://github.com/${REPO}/releases/latest/download/${ASSET}"
+  else
+    echo "https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
+  fi
+}
+
+# ── 安装二进制：下载 release，或（ROAM_FROM_SOURCE / 下载失败且在 clone 内）从源码构建 ──
+install_binary() {
+  mkdir -p "$BIN_DIR"
+  local dest="${BIN_DIR}/roam"
+
+  if [ "${ROAM_FROM_SOURCE:-0}" != 1 ]; then
+    local url; url="$(download_url)"
+    step "下载 ${ASSET} ($VERSION)..."
+    if curl -fSL --progress-bar -o "${dest}.tmp" "$url"; then
+      mv "${dest}.tmp" "$dest"; chmod +x "$dest"
+      info "roam 已安装到 $dest"
+      return 0
+    fi
+    rm -f "${dest}.tmp"
+    warn "下载失败（可能该 release 尚未发布）。"
+  fi
+
+  # 源码构建回退（需在 clone 内，且有 go+node）
+  local here; here="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")"
+  if [ -f "${here}/scripts/build/build-roam.sh" ] && command -v go >/dev/null && command -v npm >/dev/null; then
+    step "从源码构建 roam（scripts/build/build-roam.sh）..."
+    ( cd "$here" && bash scripts/build/build-roam.sh )
+    local built; built="$(ls -1 "${here}/backend/dist/roam-"* 2>/dev/null | head -1)"
+    [ -n "$built" ] || die "源码构建未产出二进制"
+    cp "$built" "$dest"; chmod +x "$dest"
+    info "roam 已从源码构建并安装到 $dest"
+    return 0
+  fi
+  die "无法安装 roam：下载失败且非源码环境（需 clone 仓库 + go/npm，或先发布 release）"
+}
+
+# ── systemd 常驻服务 ─────────────────────────────────────────────
+install_service_user() {
+  command -v systemctl >/dev/null || { warn "无 systemd，跳过服务注册；手动运行：${BIN_DIR}/roam"; return 0; }
+  local unit_dir="${HOME}/.config/systemd/user"
+  mkdir -p "$unit_dir"
+  cat > "${unit_dir}/${SERVICE_NAME}.service" <<EOF
+[Unit]
+Description=Roam web console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=${BIN_DIR}/roam
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+EOF
+  systemctl --user daemon-reload
+  systemctl --user enable --now "${SERVICE_NAME}.service"
+  # 让用户级服务在未登录时也常驻（服务器场景必需）
+  if command -v loginctl >/dev/null; then
+    loginctl enable-linger "$USER" 2>/dev/null || warn "loginctl enable-linger 失败：注销后服务可能停止（可 sudo loginctl enable-linger $USER）"
+  fi
+  info "已注册用户级 systemd 服务：systemctl --user status ${SERVICE_NAME}"
+}
+
+install_service_system() {
+  command -v systemctl >/dev/null || die "无 systemd，无法注册系统级服务"
+  local sudo=""; [ "$(id -u)" -ne 0 ] && sudo="sudo"
+  local user="${SUDO_USER:-$USER}" home
+  home="$(eval echo "~${user}")"
+  $sudo tee "/etc/systemd/system/${SERVICE_NAME}.service" >/dev/null <<EOF
+[Unit]
+Description=Roam web console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=${user}
+Environment=HOME=${home}
+ExecStart=${BIN_DIR}/roam
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  $sudo systemctl daemon-reload
+  $sudo systemctl enable --now "${SERVICE_NAME}.service"
+  info "已注册系统级 systemd 服务：sudo systemctl status ${SERVICE_NAME}"
+}
 
 # ── 主流程 ───────────────────────────────────────────────────────
 echo ""
-echo -e "  ${bold}ttmux${reset} ${dim}— AI-native tmux 部署脚本${reset}"
+echo -e "  ${bold}Roam${reset} ${dim}— 服务器安装（下载二进制 + systemd 常驻）${reset}"
 echo ""
 
-preflight            # 平台横幅 + tmux + 建目录
-module_ttmux         # [1/3]
-module_chrome        # [2/3]
-module_backend       # [3/3]（只构建，不启动）
-# 注：手机后端依赖（adb / idb）不在此预装；由设置页「手机」平台开关按需安装（scripts/phone/install-phone.sh）。
+detect_asset
+install_binary
 
-# PATH 提示
-if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
-    echo ""
-    warn "${INSTALL_DIR} 不在 PATH 中，请添加:"
-    echo ""
-    echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
+if [ "${ROAM_NO_SERVICE:-0}" = 1 ]; then
+  step "ROAM_NO_SERVICE=1：跳过服务注册"
+elif [ "${ROAM_SYSTEM:-0}" = 1 ]; then
+  install_service_system
+elif [ "$OS" = darwin ]; then
+  warn "macOS 无 systemd，跳过服务注册；手动运行：${BIN_DIR}/roam（或用 launchd 自建）"
+else
+  install_service_user
 fi
 
+# PATH 提示
+if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
+  echo ""; warn "${BIN_DIR} 不在 PATH，请追加： export PATH=\"${BIN_DIR}:\$PATH\""
+fi
+
+PORT="13579"
 echo ""
-echo -e "  ${bold}部署完成!${reset}"
-echo ""
-echo -e "  ${dim}启动后端服务:${reset}"
-echo -e "    bash start.sh            ${dim}# 直接启动已构建产物${reset}"
-echo -e "    bash start.sh --dev      ${dim}# 开发：每次重新编译${reset}"
-echo ""
-echo -e "  ${dim}试试 CLI:${reset}"
-echo -e "    ttmux help"
-echo -e "    ttmux new dev"
+echo -e "  ${bold}完成!${reset}"
+echo -e "  ${dim}控制台:${reset} https://<本机IP>:${PORT}  ${dim}(默认自签 HTTPS；设 web.tls: false 退回 http)${reset}"
+echo -e "  ${dim}首次打开网页需设置登录口令；配置在 ~/.roam/config.yaml${reset}"
+if [ "${ROAM_NO_SERVICE:-0}" != 1 ] && [ "$OS" != darwin ]; then
+  echo -e "  ${dim}服务:${reset} systemctl --user {status|restart|stop} ${SERVICE_NAME}   ${dim}(或系统级 sudo systemctl …)${reset}"
+fi
 echo ""

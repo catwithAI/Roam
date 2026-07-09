@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # start.sh — 启动 ttmux-web（后台守护，关终端/Ctrl-C 不影响）
 #
-#   bash start.sh            直接启动 install.sh 已构建的产物（不重新编译，最快）
-#   bash start.sh --dev      开发模式：每次增量编译前端+后端再启动（并刷新 CLI/skills）
+#   bash start.sh            直接启动已构建的产物（不重新编译，最快）
+#   bash start.sh --dev      开发模式：从源码构建 CLI/chrome/skills + 增量编译前端+后端再启动
+#                            （原 install.sh 的源码构建编排已并入本脚本；install.sh 现只做「下载二进制 + systemd 常驻」）
 #   bash start.sh stop       停止
 #   bash start.sh status     查看状态
 #   bash start.sh logs       跟随日志
@@ -126,33 +127,33 @@ case "${1:-}" in
     exec tail -n 100 -f "$LOG" ;;
 esac
 
-# ── 登录口令：用户可通过环境变量或 .env 自定义；未配置时首次启动随机生成并写回 .env ──
-# 改密码：编辑 .env 里的 TTMUX_WEB_PASSWORD（或导出同名环境变量）后重启即可。
-PW_GENERATED=0
-if [ -z "${TTMUX_WEB_PASSWORD:-}" ]; then
-  if command -v openssl >/dev/null 2>&1; then
-    TTMUX_WEB_PASSWORD="ttmux-$(openssl rand -hex 4)"
-  else
-    TTMUX_WEB_PASSWORD="ttmux-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
-  fi
-  # 持久化到 .env（gitignored），让用户能查看/修改：已有键则替换其值，否则追加。
-  touch .env
-  if grep -qE '^[[:space:]]*TTMUX_WEB_PASSWORD=' .env; then
-    tmp="$(mktemp)"
-    sed -E "s|^[[:space:]]*TTMUX_WEB_PASSWORD=.*|TTMUX_WEB_PASSWORD=${TTMUX_WEB_PASSWORD}|" .env > "$tmp" && mv "$tmp" .env
-  else
-    printf '\n# 自动生成的登录口令（可在本文件修改后重启生效）\nTTMUX_WEB_PASSWORD=%s\n' "$TTMUX_WEB_PASSWORD" >> .env
-  fi
-  PW_GENERATED=1
-fi
-export TTMUX_WEB_PASSWORD
-
+# ── 登录口令：由后端从 ~/.roam/config.yaml 管理。留空则首次打开网页时在界面上设置；
+#    也可编辑 config.yaml 的 web.password，或用「设置 → 修改登录口令」。
+#    这里不再生成/写回口令，避免用环境变量覆盖掉「首次设置」流程。
 BIN=backend/ttmux-web
 
-# ── dev：刷新 CLI/chrome/skills（跳过后端，交给本脚本增量编译）──────
-if [ "$DEV" = 1 ] && [ -f install.sh ]; then
-  echo "==> [dev] 刷新 ttmux + chrome + skills (install.sh, 跳过后端构建)..."
-  TTMUX_SKIP_BACKEND=1 bash install.sh || { echo "✘ install.sh 失败"; exit 1; }
+# ── dev：从源码刷新 ttmux CLI + chrome + skills ─────────────────────
+# 原 install.sh 的源码构建编排已并入这里（后端/前端由本脚本下面自行增量编译）。
+if [ "$DEV" = 1 ] && [ -d scripts/install ]; then
+  echo "==> [dev] 从源码刷新 ttmux CLI + chrome + skills..."
+  SRC="$(pwd)"
+  export SCRIPT_DIR="$SRC"
+  export GO_SRC="$SRC/cli/ttmux-cli-go"
+  export TTMUX_BUILD="$SRC/cli/ttmux-cli/build.sh"
+  export CHROME_BUILD="$SRC/cli/chrome-cli/build.sh"
+  export INSTALL_DIR="$HOME/.local/bin"
+  export SKILL_DIR="$HOME/.claude/skills"
+  export REPO="ybz21/Roam" BRANCH="${TTMUX_INSTALL_BRANCH:-main}"
+  export CC_SWARM_DOCS="intake decompose spawn patrol approve test-push review concurrency integrate memory"
+  mkdir -p "$INSTALL_DIR"
+  # lib/platform.sh 在 source 时自检平台；模块用 lib 里的 step/info/… + 平台变量。
+  source scripts/install/lib/common.sh
+  source scripts/install/lib/platform.sh
+  source scripts/install/lib/github.sh
+  source scripts/install/install-ttmux.sh
+  source scripts/install/install-chrome.sh
+  module_ttmux
+  module_chrome
 fi
 
 # ── 前端依赖：仅目录存在不代表依赖完整 ───────────────────────────
@@ -213,11 +214,8 @@ elif [ ! -x "$BIN" ]; then
 fi
 
 # ── 启动 ─────────────────────────────────────────────────────────
-echo "==> 启动 ttmux-web  $SCHEME://$BIND  （口令: ${TTMUX_WEB_PASSWORD}）"
-if [ "$PW_GENERATED" = 1 ]; then
-  echo "    ★ 已为你随机生成登录口令并写入 .env：${TTMUX_WEB_PASSWORD}"
-  echo "      改密码：编辑 .env 的 TTMUX_WEB_PASSWORD（或设同名环境变量）后重启。"
-fi
+echo "==> 启动 Roam  $SCHEME://$BIND"
+echo "    登录口令：首次打开网页时在界面上设置；或编辑 ~/.roam/config.yaml 的 web.password。"
 [ -n "$LAN" ] && echo "==> 手机/平板（同 WiFi）: $SCHEME://$LAN:$PORT"
 [ "$SCHEME" = https ] && echo "    （自签证书：手机首次访问点「高级 → 继续前往」即可，之后语音/剪贴板可用；如需 http 设 TTMUX_WEB_TLS=0）"
 

@@ -38,7 +38,7 @@ const script = `_ttmux_completions() {
             return ;;
         adopt|activate|done|archive|status|collect|say|listen|feed|watch|sql|add|board)
             local swarms
-            swarms=$(sqlite3 ~/.ttmux/meta.db "SELECT name FROM swarms;" 2>/dev/null)
+            swarms=$(sqlite3 ~/.roam/meta.db "SELECT name FROM swarms;" 2>/dev/null)
             COMPREPLY=($(compgen -W "$swarms" -- "$cur"))
             return ;;
         sp|split)

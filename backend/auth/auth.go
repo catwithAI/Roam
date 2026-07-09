@@ -26,21 +26,22 @@ import (
 const CookieName = "ttmux_session"
 
 type Auth struct {
-	password  string
 	secret    []byte
 	statePath string // 两步验证状态持久化文件（开关 + 密钥）
 	lockAfter int
 	lockSecs  int
 	ttl       time.Duration
+	savePW    func(string) error // 把口令落盘到 config.yaml（首次设置/改密）
 
 	mu          sync.Mutex
+	password    string // 登录口令（明文，常量时间比较）；为空表示尚未设置，需首次设置
 	totpSecret  string // 两步验证密钥（base32）
 	totpOn      bool   // 是否启用两步验证（UI 可切换，持久化）
 	fails       int
 	lockedUntil time.Time
 }
 
-func New(password, totpSecret, statePath string, lockAfter, lockSecs int) *Auth {
+func New(password, totpSecret, statePath string, lockAfter, lockSecs int, savePW func(string) error) *Auth {
 	a := &Auth{
 		password:  password,
 		secret:    randBytes(32),
@@ -48,6 +49,7 @@ func New(password, totpSecret, statePath string, lockAfter, lockSecs int) *Auth 
 		lockAfter: lockAfter,
 		lockSecs:  lockSecs,
 		ttl:       7 * 24 * time.Hour,
+		savePW:    savePW,
 	}
 	// 初始种子来自环境变量；若存在状态文件（UI 曾操作过）则以文件为准
 	a.totpSecret = strings.TrimSpace(totpSecret)
@@ -168,7 +170,10 @@ func (a *Auth) Login(c *gin.Context) {
 		return
 	}
 
-	pwOK := subtle.ConstantTimeCompare([]byte(body.Password), []byte(a.password)) == 1
+	a.mu.Lock()
+	cur := a.password
+	a.mu.Unlock()
+	pwOK := cur != "" && subtle.ConstantTimeCompare([]byte(body.Password), []byte(cur)) == 1
 	// 口令对了但开启了两步验证 → 还要校验动态码
 	codeOK := a.verifyCode(body.Code)
 
@@ -200,9 +205,7 @@ func (a *Auth) Login(c *gin.Context) {
 	a.mu.Unlock()
 
 	// Secure 仅在 HTTPS 下设置（本地 http 时关闭，否则 cookie 不生效）
-	secure := c.Request.TLS != nil || strings.HasPrefix(strings.ToLower(c.GetHeader("X-Forwarded-Proto")), "https")
-	c.SetSameSite(http.SameSiteStrictMode)
-	c.SetCookie(CookieName, a.issue(), int(a.ttl.Seconds()), "/", "", secure, true)
+	a.setCookie(c)
 	c.JSON(http.StatusOK, gin.H{"data": "ok"})
 }
 
@@ -211,9 +214,101 @@ func (a *Auth) Logout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": "ok"})
 }
 
-// PubConfig 公开端点：登录页据此决定是否显示动态码输入框（仅暴露开关，不泄露密钥）。
+// NeedsSetup 是否尚未设置登录口令（首次使用）。前端据此进入「首次设置口令」流程。
+func (a *Auth) NeedsSetup() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.password == ""
+}
+
+// PubConfig 公开端点：登录页据此决定是否显示动态码输入框、以及是否需要首次设置口令
+// （仅暴露开关，不泄露密钥/口令）。
 func (a *Auth) PubConfig(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{"totp": a.TOTPEnabled()}})
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{
+		"totp":       a.TOTPEnabled(),
+		"needsSetup": a.NeedsSetup(),
+	}})
+}
+
+// Setup 公开端点：仅当尚未设置口令时可用。设置初始口令并落盘，成功后直接发会话 Cookie
+// （满足「界面上直接进，但必须先配置口令」）。
+func (a *Auth) Setup(c *gin.Context) {
+	if !a.NeedsSetup() {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "ALREADY_SET", "message": "口令已设置"}})
+		return
+	}
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST"}})
+		return
+	}
+	pw := strings.TrimSpace(body.Password)
+	if len(pw) < 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "WEAK_PASSWORD", "message": "口令至少 6 位"}})
+		return
+	}
+	if err := a.persistPassword(pw); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "SAVE_FAILED", "message": "写入配置失败"}})
+		return
+	}
+	a.setCookie(c)
+	c.JSON(http.StatusOK, gin.H{"data": "ok"})
+}
+
+// ChangePassword 受保护端点：校验旧口令后改为新口令并落盘。
+func (a *Auth) ChangePassword(c *gin.Context) {
+	var body struct {
+		Old string `json:"old"`
+		New string `json:"new"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST"}})
+		return
+	}
+	a.mu.Lock()
+	cur := a.password
+	a.mu.Unlock()
+	if cur == "" || subtle.ConstantTimeCompare([]byte(body.Old), []byte(cur)) != 1 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "BAD_PASSWORD", "message": "原口令不正确"}})
+		return
+	}
+	pw := strings.TrimSpace(body.New)
+	if len(pw) < 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "WEAK_PASSWORD", "message": "口令至少 6 位"}})
+		return
+	}
+	if err := a.persistPassword(pw); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "SAVE_FAILED", "message": "写入配置失败"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": "ok"})
+}
+
+// persistPassword 更新内存口令并落盘（若配置了 savePW）。落盘失败则回滚内存值。
+func (a *Auth) persistPassword(pw string) error {
+	a.mu.Lock()
+	prev := a.password
+	a.password = pw
+	a.mu.Unlock()
+	if a.savePW == nil {
+		return nil
+	}
+	if err := a.savePW(pw); err != nil {
+		a.mu.Lock()
+		a.password = prev
+		a.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+// setCookie 发一枚已登录会话 Cookie（与 Login 成功分支一致）。
+func (a *Auth) setCookie(c *gin.Context) {
+	secure := c.Request.TLS != nil || strings.HasPrefix(strings.ToLower(c.GetHeader("X-Forwarded-Proto")), "https")
+	c.SetSameSite(http.SameSiteStrictMode)
+	c.SetCookie(CookieName, a.issue(), int(a.ttl.Seconds()), "/", "", secure, true)
 }
 
 // TOTPQR 受保护端点：返回当前状态与已配置密钥的 otpauth 链接（供再次扫码加设备）。

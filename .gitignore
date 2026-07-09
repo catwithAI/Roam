@@ -12,3 +12,9 @@
 # 本机运行态,含登录口令等敏感信息,不入库
 /config.yaml
 /.worktrees/
+
+# 后端构建产物 + 单一二进制内嵌素材（构建期生成，不入库；仓库只留占位）
+/backend/ttmux-web
+/backend/roam
+/backend/internal/webui/site/*
+!/backend/internal/webui/site/.gitkeep
