@@ -55,9 +55,7 @@ jobs:
           done
 
       - name: Build chrome (bash, arch-independent)
-        run: |
-          bash cli/chrome-cli/build.sh
-          cp chrome cli/ttmux-cli-go/dist/chrome
+        run: bash cli/chrome-cli/build.sh cli/ttmux-cli-go/dist/chrome
 
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
@@ -66,3 +64,5 @@ jobs:
             backend/dist/roam-*
             cli/ttmux-cli-go/dist/*
           fail_on_unmatched_files: true
+          # tag 里带连字符（如 v0.1.0-rc.1）视为 prerelease
+          prerelease: ${{ contains(github.ref_name, '-') }}
