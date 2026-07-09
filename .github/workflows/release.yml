@@ -68,3 +68,5 @@ jobs:
           fail_on_unmatched_files: true
           # tag 里带连字符（如 v0.1.0-rc.1）视为 prerelease
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # 自动生成 release 说明（依据自上个 tag 以来的合并 PR / 提交）
+          generate_release_notes: true
