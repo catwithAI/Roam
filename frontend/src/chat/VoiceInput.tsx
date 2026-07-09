@@ -13,7 +13,7 @@ const CANCEL_DY = 90
 // 录音时长下限：太短的误触不送去识别。
 const MIN_MS = 500
 
-export function VoiceInput({ accent, onResult }: { accent: string; onResult: (text: string) => void }) {
+export function VoiceInput({ accent, onResult, inline = false }: { accent: string; onResult: (text: string) => void; inline?: boolean }) {
   const { t } = useI18n()
   const { message } = AntApp.useApp()
   // 录音能力探测：getUserMedia/MediaRecorder 仅在安全上下文(HTTPS / localhost)可用。
@@ -160,8 +160,12 @@ export function VoiceInput({ accent, onResult }: { accent: string; onResult: (te
         onPointerUp={(e) => { e.preventDefault(); end() }}
         onPointerCancel={() => { cancelRef.current = true; end() }}
         style={{
-          position: 'absolute', right: 18, bottom: 54, zIndex: 25,
-          width: 54, height: 54, borderRadius: '50%', cursor: 'pointer',
+          // 内联模式：作为输入行里的一枚普通圆钮（手机端，避免悬浮盖住发送键）；
+          // 悬浮模式：右下角「微信式」悬浮麦克风（桌面端）。
+          ...(inline
+            ? { position: 'relative', flex: '0 0 auto', width: 32, height: 32 } // 对齐 antd 默认按钮高度，与 📎/发送 成一排
+            : { position: 'absolute', right: 18, bottom: 54, zIndex: 25, width: 54, height: 54 }),
+          borderRadius: '50%', cursor: 'pointer',
           border: 'none', touchAction: 'none', userSelect: 'none',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: cancelArmed ? '#d23' : accent,
@@ -170,7 +174,7 @@ export function VoiceInput({ accent, onResult }: { accent: string; onResult: (te
           opacity: (configured && micUsable) ? 1 : 0.92,
         }}>
         <span className={(phase === 'recording' || phase === 'transcribing') ? 'cc-pulse' : undefined} style={{ display: 'inline-flex' }}>
-          <MicIcon size={26} />
+          <MicIcon size={inline ? 18 : 26} />
         </span>
       </button>
     </>
