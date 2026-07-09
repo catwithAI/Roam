@@ -4,11 +4,12 @@ ttmux 有 **两种使用模式**，按需取用，也可叠加：
 
 | 模式 | 场景 | 装什么 | 必需依赖 |
 |------|------|--------|----------|
-| **① 本地 CLI** | 在终端 / 服务器上直接编排并行任务、Agent、蜂群 | `ttmux` 单文件脚本 | `tmux`（`sqlite3`、Claude Code 按需） |
-| **② 远程控制台** | **远程办公**：手机 / 平板 / 笔记本随地查看·操控（实时终端 + 浏览器镜像） | Web 控制台（Go + React）+ frp 内网穿透 | `go`、`node` + `npm`（远程暴露用 frp） |
+| **① 本地 CLI** | 在终端 / 服务器上直接编排并行任务、Agent、蜂群 | `ttmux` 单文件二进制 | `tmux`（Claude Code 按需） |
+| **② 远程控制台** | **远程办公**：手机 / 平板 / 笔记本随地查看·操控（实时终端 + 浏览器镜像） | `roam` 预构建单文件二进制（内嵌前端 + ttmux CLI）+ frp 内网穿透 | 目标机零依赖（`go`、`node`+`npm` 仅从源码构建时才需要；远程暴露用 frp） |
 
 > 模式 ② 跑在你的开发机 / 服务器上，模式 ① 是它的底座——**远程控制台本质是 CLI 的网页封装**，
-> 读 = 代理 `ttmux <cmd> --json`，写 = 调对应子命令，行为与 CLI 永远一致。
+> 读 = 代理 `ttmux <cmd> --json`，写 = 调对应子命令，行为与 CLI 永远一致。`roam` 二进制已把
+> 前端和 `ttmux` CLI 一并内嵌，目标机无需 go/node/npm（仅从源码构建时才需要）。
 >
 > 只在终端用 → 只装 [① CLI](#一本地-cli)。要随地远程控制 → 再加 [② 远程控制台](#二远程控制台) + [frp 远程办公](#四远程办公--frp-内网穿透)。
 
@@ -24,68 +25,65 @@ ttmux 有 **两种使用模式**，按需取用，也可叠加：
 
 ## 依赖速查
 
+> 预构建的 `roam` 二进制**零运行时依赖**——`go`、`node`+`npm` 只在**从源码构建**（`./start.sh --dev`）时才需要。
+> 下表标「仅源码构建」的两项，用预构建二进制时可略过。
+
 | 依赖 | 用途 | 没有它会怎样 | 安装 |
 |------|------|--------------|------|
-| `tmux` | CLI 的运行基座 | CLI 无法工作 | `apt install tmux` / `brew install tmux` |
-| `sqlite3` | 蜂群 swarm 的元数据库 | 仅 `swarm` 子命令不可用 | `apt install sqlite3` / `brew install sqlite3` |
+| `tmux` | CLI / 会话的运行基座 | 会话无法工作（`roam` 内嵌 ttmux，但仍需宿主机装 `tmux`） | `apt install tmux` / `brew install tmux` |
 | Claude Code | `spawn --agent` / 蜂群成员 | 仅 Agent 类任务不可用 | 见 [claude.ai/code](https://claude.ai/code) |
-| `go` ≥ 1.21 | 编译 Web 后端 | Web 控制台起不来 | [go.dev/dl](https://go.dev/dl/) |
-| `node` ≥ 18 + `npm` | 构建 Web 前端 + `chrome` 自动化 | Web 控制台起不来 / `chrome` 不可用 | [nodejs.org](https://nodejs.org/) |
+| `go` ≥ 1.21 | **仅源码构建**：编译 CLI + Web 后端 | 只影响 `start.sh --dev`；预构建二进制无需 | [go.dev/dl](https://go.dev/dl/) |
+| `node` ≥ 18 + `npm` | **仅源码构建**：构建前端 + `chrome` 自动化 | 只影响 `start.sh --dev` / `chrome`；预构建二进制无需 | [nodejs.org](https://nodejs.org/) |
 | `google-chrome` | 浏览器镜像页 + `chrome` 自动化 | 「浏览器」标签 / `chrome` 不可用 | 系统包管理器 |
 
 ---
 
 ## 一、本地 CLI
 
-### 1. 一键安装（推荐）
+`ttmux` CLI 有三种取用方式，任选其一：
+
+### 1. 内嵌在 `roam` 里（跑了远程控制台就自动有）
+
+`roam` 二进制**内嵌**了 `ttmux` CLI，首次运行时自动解压到 `~/.roam/bin/ttmux`。
+所以只要装了[② 远程控制台](#二远程控制台)，本机就已有一份可用的 `ttmux`（后端也用它）。
+想在自己的 `PATH` 里直接敲 `ttmux`，把它软链/拷贝出来即可：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
+ln -sf ~/.roam/bin/ttmux ~/.local/bin/ttmux
 ```
 
-`install.sh` 是 `scripts/` 之上的**瘦编排器**——先做系统检查（平台/架构识别、装 `tmux`），
-再按顺序跑模块：
+### 2. 从 Releases 下载独立二进制（推荐单独用 CLI 时）
 
-- **[1] ttmux**：把 `ttmux` 装到 `~/.local/bin/ttmux`；Claude Code skills 装到
-  `~/.claude/skills/`（`ttmux/SKILL.md`、`cc-swarm/SKILL.md`）；装 Tab 补全。
-- **[2] chrome**：装 Node（缺则按平台自动装）→ `chrome` CLI → `npm i playwright-core`
-  （`connectOverCDP` 复用已开 Chrome，不下载浏览器）。
-- **[3] backend**：**在 clone 里**构建 Web 控制台产物（前端 `dist` + 后端二进制），
-  **只构建不启动**；纯 `curl|bash`（无源码）则跳过。`TTMUX_SKIP_BACKEND=1` 可只装 CLI/chrome。
+标准 `ttmux` CLI 也单独发布为 `ttmux-<os>-<arch>`（linux/darwin，amd64/arm64）。
+下载对应资产 → 放进 `PATH` → 装 Tab 补全：
 
-并创建数据目录 `~/.local/share/ttmux/{logs,groups}`。
+```bash
+# 以 linux amd64 为例，按你的系统/架构替换资产名
+curl -fSL -o ~/.local/bin/ttmux \
+  https://github.com/ybz21/Roam/releases/latest/download/ttmux-linux-amd64
+chmod +x ~/.local/bin/ttmux
+ttmux completion          # 安装 Tab 补全
+```
 
-> 模块化：逻辑都在 `scripts/`（`lib/common.sh`、`lib/platform.sh`、`lib/github.sh`、
-> `preflight.sh`、`install-ttmux.sh`、`install-chrome.sh`、`install-backend.sh`）。
-> `curl|bash` 远程运行时按需从 GitHub raw 拉各模块；clone 里则直接 source 本地模块。
-> 用 `TTMUX_INSTALL_BRANCH=xxx` 可指定远程拉取的分支。
-
-若 `~/.local/bin` 不在 `PATH`，脚本会提示你追加：
+若 `~/.local/bin` 不在 `PATH`，追加一行：
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"   # 写进 ~/.bashrc 或 ~/.zshrc
 ```
 
-### 2. 手动安装
-
-已 clone 仓库时，在仓库根目录执行 `bash install.sh` 即可（自动识别本地文件，免下载）。或纯手动：
-
-```bash
-cp ttmux ~/.local/bin/ && chmod +x ~/.local/bin/ttmux
-ttmux completion          # 安装 Tab 补全
-```
-
 ### 3. 从源码构建
 
-根目录的 `ttmux` 是**单文件分发版**，由 `cli/ttmux-cli/lib/*.sh` 各模块拼接而成。改了模块要重新生成：
+CLI 主实现是 Go（`cli/ttmux-cli-go`）。在 clone 里直接编译到 `~/.local/bin`：
 
 ```bash
-vim cli/ttmux-cli/lib/swarm.sh   # 改模块（不要直接改根目录的 ttmux，会被覆盖）
-bash cli/ttmux-cli/build.sh      # 重新生成根目录 ttmux（末尾自带 bash -n 语法自检）
-bash install.sh              # 可选：装到 ~/.local/bin
+cd cli/ttmux-cli-go
+CGO_ENABLED=0 go build -o ~/.local/bin/ttmux ./cmd/ttmux-cli-go
+chmod +x ~/.local/bin/ttmux
+ttmux completion
 ```
 
-细节见 [`../../cli/ttmux-cli/README.md`](../../cli/ttmux-cli/README.md)。
+（另有 bash 单文件变体，用 `bash cli/ttmux-cli/build.sh` 生成；细节见
+[`../../cli/ttmux-cli/README.md`](../../cli/ttmux-cli/README.md)。）
 
 ### 4. 验证
 
@@ -100,64 +98,95 @@ ttmux status build
 
 ## 二、远程控制台
 
-远程控制台（`ttmux-web`）目前**从源码运行**：克隆仓库 → 一键脚本（配置见 `~/.roam/config.yaml`，首次运行自动生成）。装在你的开发机 / 服务器上，本节先让它在本机 / 局域网跑起来；要从外网随地访问，见 [四、远程办公](#四远程办公--frp-内网穿透)。
+远程控制台是 `roam` —— 一个**内嵌前端 + `ttmux` CLI 的自包含二进制**，发布为 `roam-<os>-<arch>`（linux/darwin，amd64/arm64）。配置与数据都在 `~/.roam/`（`config.yaml` 首次运行自动生成）。装在你的开发机 / 服务器上，本节先让它在本机 / 局域网跑起来；要从外网随地访问，见 [四、远程办公](#四远程办公--frp-内网穿透)。
 
-### 1. 前置
+三种装法，任选其一：
 
-确认已装 `go`、`node`+`npm`（或 `bun`），且 CLI 已可用（后端会调用 `ttmux`）。
+### 方式 A · 一键脚本（推荐，装二进制 + 常驻服务）
 
-### 2. 一键启动
+```bash
+curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
+```
+
+`install.sh` 是**服务器安装器**：检测 OS/架构 → 下载 `roam-<os>-<arch>` 到 `~/.local/bin/roam` → 注册 **systemd** 服务并启动。环境开关：
+
+- `ROAM_VERSION=vX.Y.Z` —— 指定版本（默认 latest）。
+- `ROAM_BIN_DIR=DIR` —— 安装目录（默认 `~/.local/bin`）。
+- `ROAM_SYSTEM=1` —— 注册**系统级** systemd 服务（`/etc/systemd/system`，需 root/sudo）。
+- `ROAM_NO_SERVICE=1` —— 只装二进制，不注册服务。
+- `ROAM_FROM_SOURCE=1` —— 在 clone 内从源码构建（需 go+node），而非下载 release。
+
+服务管理：
+
+```bash
+systemctl --user status roam       # 状态（系统级用 sudo systemctl status roam）
+systemctl --user restart roam      # 重启
+systemctl --user stop roam         # 停止
+```
+
+### 方式 B · 手动跑二进制（不注册服务）
+
+```bash
+# 以 linux amd64 为例，按你的系统/架构替换资产名
+curl -fSL -o ~/.local/bin/roam \
+  https://github.com/ybz21/Roam/releases/latest/download/roam-linux-amd64
+chmod +x ~/.local/bin/roam
+roam                               # 直接前台运行
+```
+
+### 方式 C · 从源码构建
 
 ```bash
 git clone https://github.com/ybz21/Roam.git
-cd roam
-
-bash install.sh               # 构建产物：前端 dist + 后端二进制（[3] backend 模块）
-./start.sh                    # 直接启动已构建产物（不重新编译）
+cd Roam
+./start.sh --dev                   # 从源码构建 CLI/chrome/skills + 前后端，再启动
 ```
 
-两种启动模式：
+`./start.sh --dev` 在 clone 内从源码构建 ttmux CLI + chrome CLI + skills + 前端 + 后端，再运行；`start.sh` 不再调用 `install.sh`。**已构建过产物**后，直接 `./start.sh`（不带 `--dev`）即可跑现有产物。
 
-- `./start.sh` —— **直接启动** `install.sh` 已构建的产物，不重新编译（最快）。
-- `./start.sh --dev` —— **开发模式**：每次增量编译前端+后端，并刷新 CLI/skills 再启动。
-
-`start.sh` 默认**后台守护**运行（`setsid` 脱离终端，关终端 / Ctrl-C 都不影响），并打印访问地址：
+无论哪种方式，启动后都会打印访问地址：
 
 ```
-==> 启动 ttmux-web  http://0.0.0.0:13579  （口令: ******）
-==> 手机/平板（同 WiFi）: http://192.168.x.x:13579
+==> 启动 Roam  https://0.0.0.0:13579
+==> 手机/平板（同 WiFi）: https://192.168.x.x:13579
 ```
 
-浏览器打开该地址：**首次启动口令为空**，在 Web 界面里设置口令后即可进入（之后可在 **设置 → 修改密码** 或 `~/.roam/config.yaml` 的 `web.password` 里改）。
+浏览器打开该地址：**首次启动口令为空**，在 Web 界面里设置口令后即可进入（之后可在 **设置 → 修改密码** 或 `~/.roam/config.yaml` 的 `web.password` 里改）。TLS 默认开启（自签 HTTPS，手机经局域网用麦克风/剪贴板需安全上下文）。
 
 > 增量构建（`--dev`）：前端/后端**有改动才重新编译**，没改动直接复用产物，二次启动很快。
 
-### 3. 进程管理
+### 进程管理
 
 ```bash
+# 方式 A（systemd 服务）
+systemctl --user status roam       # 状态（系统级用 sudo systemctl …）
+systemctl --user restart roam      # 重启 / stop 停止
+journalctl --user -u roam -f       # 跟随日志
+
+# 方式 C（源码 / 开发启动器 start.sh）
 ./start.sh stop      # 停止
 ./start.sh status    # 查看是否在跑 + 端口/PID
 ./start.sh logs      # 跟随日志（tail -f）
 ./start.sh --dev fg        # 前台运行（调试用，Ctrl-C 即停）
 ```
 
-### 4. 手动运行（不用脚本）
+### 手动运行（不用脚本，源码调试）
 
 ```bash
 # 前端构建一次
 cd frontend && npm install && npx vite build && cd ..
 
-# 后端编译并运行（flag 覆盖环境变量）
+# 后端编译并运行（flag 覆盖配置；口令来自 config.yaml / 首次运行界面设置）
 cd backend && go build -o ttmux-web ./cmd
-TTMUX_BIN=../ttmux TTMUX_WEB_PASSWORD=secret \
+TTMUX_BIN=../ttmux \
   ./ttmux-web -addr 127.0.0.1:13579 -web ../frontend/dist
 ```
 
-### 5. 开发模式（前后端分离热更新）
+### 开发模式（前后端分离热更新）
 
 ```bash
-cd backend  && TTMUX_BIN=../ttmux TTMUX_WEB_PASSWORD=dev go run ./cmd   # 后端 :8080
-cd frontend && npm run dev                                             # 前端 :5173（代理 /api 含 WS）
+cd backend  && TTMUX_BIN=../ttmux go run ./cmd   # 后端 :8080（口令来自 config.yaml）
+cd frontend && npm run dev                        # 前端 :5173（代理 /api 含 WS）
 ```
 
 后端分层与 API 见 [`../../backend/README.md`](../../backend/README.md)，完整设计见 [`../design/web/`](../design/web/)。
@@ -208,12 +237,12 @@ web:
 家里/公司的开发机一般没有公网 IP，外网到不了。**frp** 用一台有公网 IP 的小服务器做中转，把内网的控制台穿透出来——这是远程办公最常用、自托管、零依赖第三方的方案。
 
 ```
- 手机/笔记本(外网) ──► 公网服务器 frps ──► 内网开发机 frpc ──► ttmux-web(127.0.0.1:13579)
+ 手机/笔记本(外网) ──► 公网服务器 frps ──► 内网开发机 frpc ──► roam (127.0.0.1:13579)
 ```
 
-> ⚠ **远程控制台等于把 shell 执行能力搬上网。** 穿透前务必：强 `TTMUX_WEB_PASSWORD` + 开两步验证
-> （控制台「系统配置」）+ 保留登录失败锁定（`TTMUX_WEB_LOCK_*`）。并把 `TTMUX_WEB_BIND` 收回
-> `127.0.0.1:13579`，只让 frpc 在本机连，不再裸暴露局域网。
+> ⚠ **远程控制台等于把 shell 执行能力搬上网。** 穿透前务必编辑 `~/.roam/config.yaml`：设强
+> `web.password` + 开两步验证（控制台「系统配置」）+ 保留登录失败锁定（`web.lock_after` /
+> `web.lock_secs`）。并把 `web.bind` 收回 `127.0.0.1:13579`，只让 frpc 在本机连，不再裸暴露局域网。
 
 下载 frp：[github.com/fatedier/frp/releases](https://github.com/fatedier/frp/releases)（`frps` 放公网服务器，`frpc` 放开发机）。
 
@@ -242,7 +271,7 @@ auth.token = "同 frps 的 token"
 name = "ttmux-web"
 type = "tcp"
 localIP = "127.0.0.1"
-localPort = 13579        # 对应 TTMUX_WEB_BIND
+localPort = 13579        # 对应 web.bind
 remotePort = 13579       # 公网服务器对外端口
 ```
 
@@ -303,7 +332,7 @@ bindPort = 13579        # 映射到本机
 不想自己备公网服务器，也可用现成隧道：
 
 - **Tailscale**：组网后用设备 tailnet IP 访问 `http://<tailscale-ip>:13579`，仅你的网络内可达，零端口暴露。
-- **Cloudflare Tunnel**：`cloudflared tunnel --url http://127.0.0.1:13579`，把 `TTMUX_WEB_BIND` 收回 `127.0.0.1`。
+- **Cloudflare Tunnel**：`cloudflared tunnel --url http://127.0.0.1:13579`，把 `~/.roam/config.yaml` 的 `web.bind` 收回 `127.0.0.1`。
 
 ---
 
@@ -343,19 +372,21 @@ chrome help                         # 全部动词与选项
 
 ## 六、升级与卸载
 
-**升级 CLI**：重跑一键脚本即可覆盖；或在仓库内 `git pull && bash cli/ttmux-cli/build.sh && bash install.sh`。
+**升级**：
 
-**升级 Web**：`git pull && ./start.sh --dev`（脚本检测改动并重编）。
+- 服务安装（方式 A）：重跑 `curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash` 覆盖即可，或指定版本 `ROAM_VERSION=vX.Y.Z bash install.sh`。
+- 源码构建（方式 C）：`git pull && ./start.sh --dev`（脚本检测改动并重编）。
 
 **卸载**：
 
 ```bash
-./start.sh stop                       # 先停 Web（如在跑）
-rm -f ~/.local/bin/ttmux                   # CLI 二进制
-rm -f ~/.claude/skills/ttmux.md ~/.claude/skills/cc-swarm.md   # skills
-rm -rf ~/.local/share/ttmux                # 数据/日志（注意：会删任务组元数据）
-rm -rf ~/.ttmux                            # 蜂群库（meta.db + 各群 swarm.db）
+systemctl --user disable --now roam           # 停并停用服务（系统级用 sudo systemctl …）
+rm -f ~/.config/systemd/user/roam.service     # 移除服务单元
+rm -f ~/.local/bin/roam ~/.local/bin/ttmux    # 二进制（roam + 若单独装过的 ttmux）
+rm -rf ~/.roam                                # 配置 + 数据 + 蜂群 meta.db（现全在一个目录下）
 ```
+
+（若之前单独装过 Claude Code skills，可另行删 `~/.claude/skills/ttmux/` 等目录。）
 
 ---
 
@@ -363,12 +394,13 @@ rm -rf ~/.ttmux                            # 蜂群库（meta.db + 各群 swarm.
 
 | 现象 | 排查 |
 |------|------|
-| `command not found: ttmux` | `~/.local/bin` 不在 `PATH`，按[一-1](#1-一键安装推荐)追加。 |
-| 启动报「需要先安装 tmux」 | 装 `tmux`。 |
-| `swarm` 命令报缺 `sqlite3` | 装 `sqlite3`。 |
-| 后端日志「找不到 ttmux」 | `TTMUX_BIN` 没指对，或 ttmux 不在 PATH。`start.sh` 会自动指向仓库内 `./ttmux`。 |
-| 端口被占用 / 想换端口 | 改 `TTMUX_WEB_BIND`，或 `./start.sh stop` 清掉旧进程。 |
-| 前端是「内嵌回退页」很简陋 | 说明没构建 React。跑 `./start.sh --dev` 或手动 `vite build`。 |
+| `command not found: ttmux` | `~/.local/bin` 不在 `PATH`，按[一、本地 CLI](#一本地-cli) 追加；或把 `~/.roam/bin/ttmux` 软链出来。 |
+| `command not found: roam` | `~/.local/bin` 不在 `PATH`，追加 `export PATH="$HOME/.local/bin:$PATH"`。 |
+| 装 `roam` 报缺 go/node | 预构建二进制**无需**任何运行时依赖；只有从源码构建（`./start.sh --dev` / `ROAM_FROM_SOURCE=1`）才需要 go+node，直接用一键脚本下载二进制即可。 |
+| 启动报「需要先安装 tmux」 | 装 `tmux`（`roam` 内嵌 ttmux，但会话仍需宿主机的 `tmux`）。 |
+| 后端日志「找不到 ttmux」 | `TTMUX_BIN` 没指对，或 ttmux 不在 PATH。`roam` 会自动解压内嵌 ttmux 到 `~/.roam/bin/ttmux`。 |
+| 端口被占用 / 想换端口 | 改 `~/.roam/config.yaml` 的 `web.bind`，或停掉旧进程（`systemctl --user restart roam` / `./start.sh stop`）。 |
+| 前端是「内嵌回退页」很简陋 | 源码运行时说明没构建 React，跑 `./start.sh --dev`；预构建 `roam` 已内嵌前端，不会出现。 |
 | 浏览器标签连不上 | 确认装了 `google-chrome`；检查 `TTMUX_CHROME_CDP` 指向的端口。 |
 | 忘了口令 | 在控制台 **设置 → 修改密码** 里改；或编辑 `~/.roam/config.yaml` 的 `web.password` 后 `./start.sh stop && ./start.sh`。 |
 | 看后端日志 | `./start.sh logs`（默认 `/tmp/ttmux-web.log`）。 |
