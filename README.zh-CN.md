@@ -114,10 +114,24 @@ Roam 的重点不是“多一个终端工具”，而是让开发机变成一个
 
 ## 安装与启动
 
-### 方式 A — 下载单一二进制（推荐）
+`roam` 是把前端与 `ttmux` CLI 内嵌在一起的单一自包含二进制，目标机无需 go/node/npm。
+配置与数据都在 `~/.roam/`（`config.yaml` 首次运行自动生成）。
 
-`roam` 是把前端与 `ttmux` CLI 内嵌在一起的自包含二进制。到
-[Releases](https://github.com/ybz21/Roam/releases) 下载对应 OS/arch 的构建后直接运行：
+### 方式 A — 装成常驻服务（服务器推荐）
+
+一行下载二进制并注册为 **systemd** 常驻服务（重启、注销后仍在跑）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
+```
+
+`install.sh` 把 `roam` 装到 `~/.local/bin` 并注册用户级服务——用
+`systemctl --user {status|restart|stop} roam` 管理。环境开关：`ROAM_VERSION=vX.Y.Z`、
+`ROAM_BIN_DIR=DIR`、`ROAM_SYSTEM=1`（系统级服务，需 sudo）、`ROAM_NO_SERVICE=1`（只装二进制）。
+
+### 方式 B — 手动跑二进制
+
+到 [Releases](https://github.com/ybz21/Roam/releases) 下对应 OS/arch 的构建，直接运行（不建服务，适合 macOS 或先试用）：
 
 ```bash
 # 例：Linux x86_64
@@ -127,35 +141,19 @@ chmod +x ~/.local/bin/roam
 roam                    # 启动 Web 控制台，监听 0.0.0.0:13579
 ```
 
-首次启动**没有口令**：在浏览器打开控制台，先设置登录口令再进入。配置在
-`~/.roam/config.yaml`（首次运行自动生成）；之后也可在**「设置 → 修改登录口令」**里改。
-
-### 方式 B — 从源码构建
-
-一行安装 CLI 并构建 Web 控制台：
+### 方式 C — 从源码（开发）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
+git clone https://github.com/ybz21/Roam.git
+cd Roam
+./start.sh --dev       # 从源码构建 CLI/chrome/skills + 前端 + 后端，然后启动
 ```
 
-`install.sh` 是 `scripts/` 之上的瘦编排器——先做系统检查，再跑三个模块：
-**[1]** ttmux CLI + skills、**[2]** chrome + Node + Playwright、**[3]** 构建后端
-（前端 `dist` + Go 二进制）。它把 `ttmux`/`chrome` 装到 `~/.local/bin` 并构建好
-产物，但**不启动任何服务**。经 `curl | bash` 运行时按需从 GitHub 拉各模块，在
-clone 里则直接 source 本地模块。`TTMUX_SKIP_BACKEND=1` 只装 CLI/chrome。
+`start.sh` 还支持 `stop` / `status` / `logs` / `fg`；不带 `--dev` 直接启动已构建产物。
 
-然后在仓库目录里启动 Web 控制台：
-
-```bash
-./start.sh             # 直接启动已构建产物（不重新编译）
-# ./start.sh --dev     # 开发模式：每次重新编译前端+后端
-```
-
-`start.sh` 还支持 `stop` / `status` / `logs` / `fg`。
-
-默认监听 `0.0.0.0:13579`，局域网设备可以直接访问。首次启动在网页上设置登录口令；
-之后可编辑 `~/.roam/config.yaml` 或用**「设置 → 修改登录口令」**修改。远程访问建议走
-Tailscale、Cloudflare Tunnel、SSH forwarding 或 frp。
+首次启动**没有口令**：在浏览器打开控制台先设一个再进入。之后可在**「设置 → 修改登录口令」**
+或编辑 `~/.roam/config.yaml` 修改。默认监听 `0.0.0.0:13579`（自签 HTTPS），局域网设备可直接访问。
+远程访问建议走 Tailscale、Cloudflare Tunnel、SSH forwarding 或 frp。
 
 通过 **frp 暴露并保持 HTTPS**（让手机语音输入、剪贴板经隧道仍可用）的配置见
 **[docs/deploy/frp.md](docs/deploy/frp.md)**（中英双语）。

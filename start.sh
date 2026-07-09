@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # start.sh — 启动 ttmux-web（后台守护，关终端/Ctrl-C 不影响）
 #
-#   bash start.sh            直接启动 install.sh 已构建的产物（不重新编译，最快）
-#   bash start.sh --dev      开发模式：每次增量编译前端+后端再启动（并刷新 CLI/skills）
+#   bash start.sh            直接启动已构建的产物（不重新编译，最快）
+#   bash start.sh --dev      开发模式：从源码构建 CLI/chrome/skills + 增量编译前端+后端再启动
+#                            （原 install.sh 的源码构建编排已并入本脚本；install.sh 现只做「下载二进制 + systemd 常驻」）
 #   bash start.sh stop       停止
 #   bash start.sh status     查看状态
 #   bash start.sh logs       跟随日志
@@ -131,10 +132,28 @@ esac
 #    这里不再生成/写回口令，避免用环境变量覆盖掉「首次设置」流程。
 BIN=backend/ttmux-web
 
-# ── dev：刷新 CLI/chrome/skills（跳过后端，交给本脚本增量编译）──────
-if [ "$DEV" = 1 ] && [ -f install.sh ]; then
-  echo "==> [dev] 刷新 ttmux + chrome + skills (install.sh, 跳过后端构建)..."
-  TTMUX_SKIP_BACKEND=1 bash install.sh || { echo "✘ install.sh 失败"; exit 1; }
+# ── dev：从源码刷新 ttmux CLI + chrome + skills ─────────────────────
+# 原 install.sh 的源码构建编排已并入这里（后端/前端由本脚本下面自行增量编译）。
+if [ "$DEV" = 1 ] && [ -d scripts/install ]; then
+  echo "==> [dev] 从源码刷新 ttmux CLI + chrome + skills..."
+  SRC="$(pwd)"
+  export SCRIPT_DIR="$SRC"
+  export GO_SRC="$SRC/cli/ttmux-cli-go"
+  export TTMUX_BUILD="$SRC/cli/ttmux-cli/build.sh"
+  export CHROME_BUILD="$SRC/cli/chrome-cli/build.sh"
+  export INSTALL_DIR="$HOME/.local/bin"
+  export SKILL_DIR="$HOME/.claude/skills"
+  export REPO="ybz21/Roam" BRANCH="${TTMUX_INSTALL_BRANCH:-main}"
+  export CC_SWARM_DOCS="intake decompose spawn patrol approve test-push review concurrency integrate memory"
+  mkdir -p "$INSTALL_DIR"
+  # lib/platform.sh 在 source 时自检平台；模块用 lib 里的 step/info/… + 平台变量。
+  source scripts/install/lib/common.sh
+  source scripts/install/lib/platform.sh
+  source scripts/install/lib/github.sh
+  source scripts/install/install-ttmux.sh
+  source scripts/install/install-chrome.sh
+  module_ttmux
+  module_chrome
 fi
 
 # ── 前端依赖：仅目录存在不代表依赖完整 ───────────────────────────

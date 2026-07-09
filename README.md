@@ -146,11 +146,29 @@ closed.
 
 ## Install And Start
 
-### Option A — download the single binary (recommended)
+`roam` is a single self-contained binary with the frontend and the `ttmux` CLI
+embedded, so the target machine needs no go/node/npm. Config and data live in
+`~/.roam/` (`config.yaml` is generated on first run).
 
-`roam` is a self-contained binary with the frontend and the `ttmux` CLI embedded.
-Download the build for your OS/arch from the
-[Releases](https://github.com/ybz21/Roam/releases) page, then run it:
+### Option A — install as a service (recommended for servers)
+
+One line downloads the binary and registers it as a persistent **systemd**
+service (survives reboots and logout):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
+```
+
+`install.sh` installs `roam` into `~/.local/bin` and sets up a user service —
+manage it with `systemctl --user {status|restart|stop} roam`. Env switches:
+`ROAM_VERSION=vX.Y.Z`, `ROAM_BIN_DIR=DIR`, `ROAM_SYSTEM=1` (system-wide service,
+needs sudo), `ROAM_NO_SERVICE=1` (install the binary only).
+
+### Option B — run the binary manually
+
+Grab the build for your OS/arch from the
+[Releases](https://github.com/ybz21/Roam/releases) page and run it directly (no
+service — good for macOS or a quick try):
 
 ```bash
 # example: Linux x86_64
@@ -160,40 +178,22 @@ chmod +x ~/.local/bin/roam
 roam                    # starts the Web console on 0.0.0.0:13579
 ```
 
+### Option C — from source (development)
+
+```bash
+git clone https://github.com/ybz21/Roam.git
+cd Roam
+./start.sh --dev       # build CLI/chrome/skills + frontend + backend from source, then run
+```
+
+`start.sh` also supports `stop` / `status` / `logs` / `fg`; plain `./start.sh`
+runs already-built artifacts without recompiling.
+
 On first launch there is **no password**: open the Web console in a browser and
-set a login password before entering. Config lives in `~/.roam/config.yaml`
-(generated on first run); you can also change the password later under
-**Settings → Change password**.
-
-### Option B — build from source
-
-Install the CLI and build the Web console with one line:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
-```
-
-`install.sh` is a thin orchestrator over `scripts/`: it runs a system preflight
-check, then three modules: **[1]** ttmux CLI + skills, **[2]** chrome + Node +
-Playwright, and **[3]** backend build (frontend `dist` + Go binary). It installs
-`ttmux` and `chrome` into `~/.local/bin` and builds the artifacts, but **does
-not start any service**. When run through `curl | bash`, it fetches modules from
-GitHub on demand; inside a clone, it sources the local modules directly.
-`TTMUX_SKIP_BACKEND=1` installs only the CLI/chrome parts.
-
-Then start the Web console from the repository:
-
-```bash
-./start.sh             # start built artifacts directly, without recompiling
-# ./start.sh --dev     # development mode: rebuild frontend + backend each run
-```
-
-`start.sh` also supports `stop` / `status` / `logs` / `fg`.
-
-By default, the Web console listens on `0.0.0.0:13579`, so devices on the same
-LAN can reach it. On first launch you set the login password in the Web UI; you
-can later edit `~/.roam/config.yaml` or use **Settings → Change password**. For
-remote access, prefer Tailscale, Cloudflare Tunnel, SSH forwarding, or frp.
+set one before entering. Change it later under **Settings → Change password**, or
+edit `~/.roam/config.yaml`. By default the console listens on `0.0.0.0:13579`
+(self-signed HTTPS), so devices on the same LAN can reach it. For remote access,
+prefer Tailscale, Cloudflare Tunnel, SSH forwarding, or frp.
 
 Exposing Roam through **frp with HTTPS** so mobile voice input and clipboard
 continue to work through the tunnel is covered in
