@@ -1,10 +1,8 @@
-// ttmux-web — ttmux 的 Web 控制台后端入口。
-// 解析环境变量 → 组装 server.Config → 启动 Gin。
+// roam-web — Roam 的 Web 控制台后端入口。
+// 读取 ~/.roam/config.yaml（缺失则由内嵌模板生成）→ 叠加 flag → 组装 server.Config → 启动 Gin。
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"flag"
 	"log"
 	"net"
@@ -12,51 +10,70 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
 
 	"ttmux-web/browser"
+	"ttmux-web/config"
+	"ttmux-web/internal/clibin"
+	"ttmux-web/internal/webui"
 	"ttmux-web/server"
 )
 
 func main() {
-	addrFlag := flag.String("addr", "", "监听地址，如 0.0.0.0:13579（覆盖 TTMUX_WEB_BIND）")
-	webFlag := flag.String("web", "", "前端构建产物目录 frontend/dist（覆盖自动探测）")
-	tlsFlag := flag.Bool("tls", false, "启用自签 HTTPS（也可用 TTMUX_WEB_TLS=1）；手机用麦克风/剪贴板需安全上下文")
-	tlsCertFlag := flag.String("tls-cert", "", "TLS 证书路径（缺省 <data>/tls/cert.pem，缺失则自动生成）")
-	tlsKeyFlag := flag.String("tls-key", "", "TLS 私钥路径（缺省 <data>/tls/key.pem，缺失则自动生成）")
+	configFlag := flag.String("config", "", "配置文件路径（覆盖 ROAM_CONFIG / ~/.roam/config.yaml）")
+	addrFlag := flag.String("addr", "", "监听地址，如 0.0.0.0:13579（覆盖配置里的 web.bind）")
+	webFlag := flag.String("web", "", "前端构建产物目录 frontend/dist（覆盖自动探测；留空用内嵌前端）")
+	tlsFlag := flag.Bool("tls", false, "强制启用自签 HTTPS（覆盖配置里的 web.tls=false）")
+	tlsCertFlag := flag.String("tls-cert", "", "TLS 证书路径（缺省 <home>/tls/cert.pem，缺失则自动生成）")
+	tlsKeyFlag := flag.String("tls-key", "", "TLS 私钥路径（缺省 <home>/tls/key.pem，缺失则自动生成）")
 	flag.Parse()
 
+	// 迁移旧数据目录（~/.ttmux、~/.local/share/ttmux → ~/.roam），随后加载配置。
+	migrateLegacyHome()
+	cfgPath := *configFlag
+	if cfgPath == "" {
+		cfgPath = config.ResolvePath()
+	}
+	conf, err := config.Load(cfgPath)
+	if err != nil {
+		log.Fatalf("读取配置失败(%s): %v", cfgPath, err)
+	}
+
 	bin := envOr("TTMUX_BIN", "ttmux")
-	bind := firstNonEmpty(*addrFlag, os.Getenv("TTMUX_WEB_BIND"), "0.0.0.0:13579")
+	bind := firstNonEmpty(*addrFlag, conf.Web.Bind)
+	// 前端目录：显式 -web > 磁盘探测（开发）> 内嵌产物解压（单一二进制发行）。
 	fdir := *webFlag
 	if fdir == "" {
 		fdir = frontendDir()
 	}
+	if fdir == "" {
+		fdir = webui.Ensure(dataDir())
+	}
 
-	pw := os.Getenv("TTMUX_WEB_PASSWORD")
+	// 登录口令来自配置（明文）。为空表示未设置 → 前端进入首次设置流程，此处不再随机生成。
+	pw := conf.Web.Password
 	if pw == "" {
-		pw = randHex(6)
-		log.Printf("⚠ 未设置 TTMUX_WEB_PASSWORD，已生成临时口令: %s", pw)
+		log.Printf("⚠ 未设置登录口令，请首次打开网页时在界面上设置（也可编辑 %s 的 web.password）", cfgPath)
 	}
 	if _, err := exec.LookPath(bin); err != nil {
-		log.Printf("⚠ 找不到 ttmux (%s)，请确认已安装并在 PATH 中", bin)
+		// PATH 上没有 ttmux：单一二进制发行时用内嵌的 ttmux（解压到 <home>/bin）。
+		if p := clibin.Ensure(dataDir()); p != "" {
+			bin = p
+			_ = os.Setenv("TTMUX_BIN", p) // 让 roam 拉起的 ttmux 子进程也用它
+			log.Printf("已启用内嵌 ttmux: %s", p)
+		} else {
+			log.Printf("⚠ 找不到 ttmux (%s)，请确认已安装并在 PATH 中", bin)
+		}
 	}
 
-	// 两步验证：密钥初始种子来自 TTMUX_WEB_TOTP_SECRET（默认关闭）；
+	// 两步验证：初始种子来自配置 web.totp_secret（two_fa=off 可临时关闭）；
 	// 之后可在控制台「系统配置」里开启/关闭，状态持久化到 totp.json（以文件为准）。
-	// TTMUX_WEB_2FA=off/0/false/no 可让初始种子失效（默认关闭）。
-	totp := os.Getenv("TTMUX_WEB_TOTP_SECRET")
-	switch strings.ToLower(os.Getenv("TTMUX_WEB_2FA")) {
-	case "off", "0", "false", "no":
-		totp = ""
-	}
+	totp := conf.ResolvedTOTPSecret()
 
-	// TLS：-tls 或 TTMUX_WEB_TLS 真值开启。证书缺失则就地生成自签证书（SAN 覆盖本机 IP）。
-	tlsOn := *tlsFlag || isTruthy(os.Getenv("TTMUX_WEB_TLS"))
-	certPath := firstNonEmpty(*tlsCertFlag, os.Getenv("TTMUX_WEB_TLS_CERT"), filepath.Join(dataDir(), "tls", "cert.pem"))
-	keyPath := firstNonEmpty(*tlsKeyFlag, os.Getenv("TTMUX_WEB_TLS_KEY"), filepath.Join(dataDir(), "tls", "key.pem"))
+	// TLS：配置 web.tls 或 -tls 真值开启。证书缺失则就地生成自签证书（SAN 覆盖本机 IP + 配置的 tls_san）。
+	tlsOn := conf.Web.TLS || *tlsFlag
+	certPath := firstNonEmpty(*tlsCertFlag, envOr("ROAM_WEB_TLS_CERT", envOr("TTMUX_WEB_TLS_CERT", "")), filepath.Join(dataDir(), "tls", "cert.pem"))
+	keyPath := firstNonEmpty(*tlsKeyFlag, envOr("ROAM_WEB_TLS_KEY", envOr("TTMUX_WEB_TLS_KEY", "")), filepath.Join(dataDir(), "tls", "key.pem"))
 	// 「下载证书」端点下发的是根 CA（手机装它），而非服务器叶子证书。
 	caCertPath := filepath.Join(filepath.Dir(certPath), "ca-cert.pem")
 	scheme := "http"
@@ -82,8 +99,11 @@ func main() {
 		Password:    pw,
 		TOTPSecret:  totp,
 		TOTPState:   filepath.Join(dataDir(), "totp.json"),
-		LockAfter:   atoiOr(os.Getenv("TTMUX_WEB_LOCK_AFTER"), 10),
-		LockSecs:    atoiOr(os.Getenv("TTMUX_WEB_LOCK_SECS"), 30),
+		LockAfter:   conf.Web.LockAfter,
+		LockSecs:    conf.Web.LockSecs,
+		SavePassword: func(newPW string) error {
+			return config.SavePassword(cfgPath, newPW)
+		},
 	}
 
 	r := server.New(cfg)
@@ -98,7 +118,7 @@ func main() {
 	}()
 
 	if tlsOn {
-		gen, err := ensureSelfSignedCert(certPath, keyPath)
+		gen, err := ensureSelfSignedCert(certPath, keyPath, conf.Web.TLSSAN)
 		if err != nil {
 			log.Fatalf("生成/读取自签 TLS 证书失败: %v", err)
 		}
@@ -115,15 +135,6 @@ func main() {
 	if err := r.Run(bind); err != nil {
 		log.Fatal(err)
 	}
-}
-
-// isTruthy 判定环境变量是否为「开启」语义；空/0/off/false/no 视为关闭。
-func isTruthy(s string) bool {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "0", "off", "false", "no":
-		return false
-	}
-	return true
 }
 
 func envOr(k, d string) string {
@@ -150,31 +161,58 @@ func tlsCertPathIf(on bool, path string) string {
 	return ""
 }
 
-func atoiOr(s string, d int) int {
-	if n, err := strconv.Atoi(s); err == nil && n > 0 {
-		return n
-	}
-	return d
-}
-
-func randHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "ttmux"
-	}
-	return hex.EncodeToString(b)
-}
-
+// dataDir 返回后端数据目录（TLS 证书、totp.json 等）。默认 Roam 主目录 ~/.roam；
+// 可用 ROAM_DATA 覆盖（兼容旧 TTMUX_DATA）。
 func dataDir() string {
-	data := os.Getenv("TTMUX_DATA")
-	if data == "" {
-		home, _ := os.UserHomeDir()
-		data = filepath.Join(home, ".local", "share", "ttmux")
+	if data := envOr("ROAM_DATA", os.Getenv("TTMUX_DATA")); data != "" {
+		return data
 	}
-	return data
+	return config.Home()
 }
 
 func logsDir() string { return filepath.Join(dataDir(), "logs") }
+
+// migrateLegacyHome 首次启动时把旧目录迁移到 ~/.roam：
+//   - ~/.ttmux → ~/.roam（整体改名，含 meta.db/swarms/plugins）
+//   - ~/.local/share/ttmux 里的 tls/、totp.json → ~/.roam（旧后端数据目录）
+//
+// 仅在目标不存在时迁移，且尊重 ROAM_HOME/ROAM_DATA 覆盖（此时不动）。
+func migrateLegacyHome() {
+	if os.Getenv("ROAM_HOME") != "" || os.Getenv("TTMUX_HOME") != "" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	roam := filepath.Join(home, ".roam")
+	if _, err := os.Stat(roam); err == nil {
+		return // 已存在，视为已迁移
+	}
+	legacyHome := filepath.Join(home, ".ttmux")
+	if st, err := os.Stat(legacyHome); err == nil && st.IsDir() {
+		if err := os.Rename(legacyHome, roam); err != nil {
+			log.Printf("⚠ 迁移 %s → %s 失败: %v", legacyHome, roam, err)
+			return
+		}
+		log.Printf("已迁移旧目录 %s → %s", legacyHome, roam)
+	}
+	// 旧运行时数据目录 ~/.local/share/ttmux/*（tls/totp.json/logs/groups/meta/env/agents…）
+	// 并入 ~/.roam（不覆盖已存在的目标）。
+	legacyData := filepath.Join(home, ".local", "share", "ttmux")
+	entries, err := os.ReadDir(legacyData)
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(roam, 0o700)
+	for _, e := range entries {
+		dst := filepath.Join(roam, e.Name())
+		if _, err := os.Stat(dst); err == nil {
+			continue // 目标已存在，不覆盖
+		}
+		_ = os.Rename(filepath.Join(legacyData, e.Name()), dst)
+	}
+}
 
 // frontendDir 解析前端构建产物目录（仓库根 frontend/dist，与后端分离）。
 // 优先 TTMUX_WEB_FRONTEND；否则在可执行文件与工作目录附近探测。

@@ -165,7 +165,7 @@ func imManifest() plugin.Manifest {
 				{Key: "workspace", Group: "task",
 					Title:       plugin.LocaleText{"zh-CN": "管家工作目录", "en-US": "Concierge workspace"},
 					Description: plugin.LocaleText{"zh-CN": "常驻管家的家:AGENT.md(角色与协议,可自行修改)、MEMORY.md、tasks/ 台账、inbox.jsonl 收件箱都在这里", "en-US": "Home of the resident concierge: AGENT.md (role & protocol, editable), MEMORY.md, tasks/ ledger and inbox.jsonl live here"},
-					Placeholder: "~/.ttmux/plugins/feishu/workspace"},
+					Placeholder: "~/.roam/plugins/feishu/workspace"},
 				{Key: "tick_interval", Group: "task",
 					Title:       plugin.LocaleText{"zh-CN": "心跳巡逻间隔", "en-US": "Patrol tick interval"},
 					Description: plugin.LocaleText{"zh-CN": "每隔这么久给管家投一次 tick,它会巡检超时 worker、跟进悬置事项;如 10m/30m,填 off 关闭", "en-US": "Interval between patrol ticks (e.g. 10m/30m); the concierge checks stalled workers and pending items; 'off' disables"},

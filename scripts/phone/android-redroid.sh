@@ -21,7 +21,7 @@
 set -euo pipefail
 
 ADB_ADDR="localhost:5555"
-DATA_DIR="${TTMUX_ANDROID_DATA:-$HOME/.ttmux/android}"
+DATA_DIR="${TTMUX_ANDROID_DATA:-$HOME/.roam/android}"
 GEN_COMPOSE="${DATA_DIR}/docker-compose.yml"   # 自适应生成的有效 compose
 CONTAINER="ttmux-redroid"
 

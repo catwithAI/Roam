@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# 构建「单一自包含」roam 二进制：把前端(frontend/dist)与 ttmux CLI 内嵌进后端。
+#
+# 用法：
+#   scripts/build/build-roam.sh                 # 构建当前平台 → backend/dist/roam-<os>-<arch>
+#   GOOS=darwin GOARCH=arm64 scripts/build/build-roam.sh
+#   SKIP_FRONTEND=1 GOOS=linux GOARCH=arm64 scripts/build/build-roam.sh   # 复用已构建前端（CI 多目标时）
+#
+# 结束后会把内嵌占位文件还原，保持工作树干净（避免误提交构建产物）。
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
+
+GOOS="${GOOS:-$(go env GOOS)}"
+GOARCH="${GOARCH:-$(go env GOARCH)}"
+OUT="${OUT:-backend/dist/roam-$GOOS-$GOARCH}"
+
+WEBUI_DIST="backend/internal/webui/site"
+CLIBIN="backend/internal/clibin/ttmux"
+
+restore() {
+  rm -rf "$WEBUI_DIST"; mkdir -p "$WEBUI_DIST"; echo keep > "$WEBUI_DIST/.gitkeep"
+  printf 'ROAM_CLI_PLACEHOLDER\n' > "$CLIBIN"
+}
+trap restore EXIT
+
+# 1) 前端构建（架构无关；SKIP_FRONTEND=1 时复用已构建的 frontend/dist）
+if [ "${SKIP_FRONTEND:-0}" != "1" ]; then
+  ( cd frontend && npm ci && npm run build )
+fi
+[ -f frontend/dist/index.html ] || { echo "frontend/dist 未构建"; exit 1; }
+
+# 2) 前端产物 → 后端内嵌目录
+rm -rf "$WEBUI_DIST"; mkdir -p "$WEBUI_DIST"
+cp -r frontend/dist/. "$WEBUI_DIST/"
+
+# 3) 目标平台的 ttmux CLI → 后端内嵌
+CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
+  go -C cli/ttmux-cli-go build -o "$ROOT/$CLIBIN" ./cmd/ttmux-cli-go
+
+# 4) 编译 roam（内嵌前端 + CLI）
+mkdir -p "$(dirname "$OUT")"
+CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
+  go -C backend build -o "$ROOT/$OUT" ./cmd
+
+echo "built $OUT ($(du -h "$OUT" | cut -f1))"

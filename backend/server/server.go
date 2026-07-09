@@ -29,17 +29,18 @@ import (
 var fallbackHTML []byte
 
 type Config struct {
-	TTmuxBin    string
-	LogsDir     string
-	FrontendDir string // frontend/dist 的路径；为空或不存在时用内嵌回退页
-	BrowserHome string // 浏览器导航起始页地址（供 Chrome 当默认主页）
-	DataDir     string // 数据目录（导航页站点列表等持久化到此）
-	TLSCertPath string // 自签证书路径（供「下载证书」端点下发；TLS 关闭时为空）
-	Password    string
-	TOTPSecret  string // 可选：两步验证密钥（base32）初始种子；UI 可覆盖
-	TOTPState   string // 两步验证状态持久化文件路径
-	LockAfter   int
-	LockSecs    int
+	TTmuxBin     string
+	LogsDir      string
+	FrontendDir  string // frontend/dist 的路径；为空或不存在时用内嵌回退页
+	BrowserHome  string // 浏览器导航起始页地址（供 Chrome 当默认主页）
+	DataDir      string // 数据目录（导航页站点列表等持久化到此）
+	TLSCertPath  string // 自签证书路径（供「下载证书」端点下发；TLS 关闭时为空）
+	Password     string
+	TOTPSecret   string // 可选：两步验证密钥（base32）初始种子；UI 可覆盖
+	TOTPState    string // 两步验证状态持久化文件路径
+	LockAfter    int
+	LockSecs     int
+	SavePassword func(string) error // 把登录口令落盘到 config.yaml（首次设置/改密用）
 }
 
 func New(cfg Config) *gin.Engine {
@@ -49,7 +50,7 @@ func New(cfg Config) *gin.Engine {
 	r.Use(gin.Recovery())
 
 	tt := ttmux.New(cfg.TTmuxBin)
-	a := auth.New(cfg.Password, cfg.TOTPSecret, cfg.TOTPState, cfg.LockAfter, cfg.LockSecs)
+	a := auth.New(cfg.Password, cfg.TOTPSecret, cfg.TOTPState, cfg.LockAfter, cfg.LockSecs, cfg.SavePassword)
 	h := api.New(tt, cfg.BrowserHome, cfg.DataDir)
 	browser.InitConfig(cfg.DataDir) // Chrome 启动配置持久化到 dataDir
 	phone.InitConfig(cfg.DataDir)   // 手机后端配置（本地/远程 redroid/真机）持久化到 dataDir
@@ -58,7 +59,8 @@ func New(cfg Config) *gin.Engine {
 	// 公开端点
 	r.POST("/api/login", a.Login)
 	r.POST("/api/logout", a.Logout)
-	r.GET("/api/pubconfig", a.PubConfig) // 登录页据此决定是否要动态码
+	r.POST("/api/setup", a.Setup)        // 首次设置口令（仅当尚未设置口令时可用），成功即发会话
+	r.GET("/api/pubconfig", a.PubConfig) // 登录页据此决定是否要动态码 / 是否需首次设置
 
 	// 下载自签证书（免登录）：手机装为受信任证书后即把本站当安全上下文，
 	// 可装成全屏 PWA、麦克风/剪贴板可用。TLS 关闭或证书不存在时返回 404。
@@ -197,6 +199,8 @@ func New(cfg Config) *gin.Engine {
 		g.GET("/preferences", h.GetPreferences)          // 用户偏好（主题/语言/Agent 命令等）
 		g.PUT("/preferences", h.SetPreferences)          //
 		g.POST("/speech/transcribe", h.SpeechTranscribe) // 上传录音 → 返回识别文本
+
+		g.POST("/password", a.ChangePassword) // 设置页改密（校验旧口令）→ /api/password
 
 		g.GET("/2fa/qr", a.TOTPQR)            // 当前状态 + 密钥二维码
 		g.GET("/2fa/gen", a.TOTPGen)          // 生成新密钥（开启前扫码用）

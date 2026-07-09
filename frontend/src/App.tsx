@@ -3,7 +3,7 @@
 //   电脑 ≥1200 → 三栏：导航 Sider | 列表(页面) | 终端面板(常驻, 多标签)
 //   平板/手机   → 终端为全屏覆盖层；手机底部 Tab 导航
 // 终端：多标签 / 字号调节 / 复制 / 更多快捷键 / 断线自动重连。
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   Layout, Menu, Button, Card, List, Tag, Form, Input, Select, Segmented, Tabs, Descriptions,
   Statistic, Row, Col, Space, Popconfirm, Empty, Modal, Grid, App as AntApp, Typography, Spin, Tooltip, Dropdown, Checkbox, Progress, AutoComplete, Radio, Switch,
@@ -1141,52 +1141,95 @@ function Login({ onOk }: { onOk: () => void }) {
   const { t } = useI18n()
   const [loading, setLoading] = useState(false)
   const [totp, setTotp] = useState(false) // 是否开启两步验证
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null) // 首次是否需设置口令
   const saved = (() => { try { return localStorage.getItem(PW_KEY) || '' } catch { return '' } })()
 
-  // 问后端是否要动态码（公开端点）
-  useEffect(() => { api('GET', '/pubconfig').then((r) => setTotp(!!r?.data?.totp)).catch(() => {}) }, [])
+  // 问后端是否要动态码 / 是否需首次设置口令（公开端点）
+  useEffect(() => {
+    api('GET', '/pubconfig')
+      .then((r) => { setTotp(!!r?.data?.totp); setNeedsSetup(!!r?.data?.needsSetup) })
+      .catch(() => setNeedsSetup(false))
+  }, [])
 
-  return (
-    <div style={{ height: '100dvh', display: 'grid', placeItems: 'center', padding: 16, background: 'var(--bg-base)' }}>
-      <Card style={{ width: 'min(360px,92vw)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 18 }}>
-          <img src="/logo-mark.svg" width={64} height={64} alt="Roam" style={{ borderRadius: 14 }} />
-          <div style={{
-            fontSize: 30, fontWeight: 800, letterSpacing: 1, marginTop: 12,
-            background: 'var(--brand-grad)',
-            WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent',
-          }}>Roam</div>
-          <div style={{ color: 'var(--text-dimmer)', fontSize: 12, marginTop: 4, letterSpacing: 0.5 }}>{t('auth.tagline')}</div>
-        </div>
-        <Form
-          initialValues={{ password: saved, remember: !!saved }}
-          onFinish={async (v) => {
-            setLoading(true)
-            try {
-              await api('POST', '/login', { password: v.password, code: (v.code || '').trim() })
-              try { v.remember ? localStorage.setItem(PW_KEY, v.password) : localStorage.removeItem(PW_KEY) } catch {}
-              onOk()
-            }
-            catch (e: any) {
-              message.error(/BAD_CODE/.test(e.message) ? t('auth.badCode') : /LOCKED/.test(e.message) ? t('auth.locked') : t('auth.loginFailed'))
-            } finally { setLoading(false) }
-          }}
-        >
-          <Form.Item name="password" rules={[{ required: true, message: t('auth.passwordRequired') }]}>
-            <Input.Password size="large" placeholder={t('auth.password')} autoFocus={!saved} />
-          </Form.Item>
-          {totp && (
-            <Form.Item name="code" rules={[{ required: true, message: t('auth.codeRequired') }]}>
-              <Input size="large" placeholder={t('auth.codePlaceholder')} inputMode="numeric" maxLength={6} autoFocus={!!saved} />
-            </Form.Item>
-          )}
-          <Form.Item name="remember" valuePropName="checked" style={{ marginBottom: 12 }}>
-            <Checkbox>{t('auth.rememberPassword')}</Checkbox>
-          </Form.Item>
-          <Button type="primary" size="large" block htmlType="submit" loading={loading}>{t('auth.login')}</Button>
-        </Form>
-      </Card>
+  const Brand = (
+    <div style={{ textAlign: 'center', marginBottom: 18 }}>
+      <img src="/logo-mark.svg" width={64} height={64} alt="Roam" style={{ borderRadius: 14 }} />
+      <div style={{
+        fontSize: 30, fontWeight: 800, letterSpacing: 1, marginTop: 12,
+        background: 'var(--brand-grad)',
+        WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent',
+      }}>Roam</div>
+      <div style={{ color: 'var(--text-dimmer)', fontSize: 12, marginTop: 4, letterSpacing: 0.5 }}>{t('auth.tagline')}</div>
     </div>
+  )
+
+  const shell = (children: ReactNode) => (
+    <div style={{ height: '100dvh', display: 'grid', placeItems: 'center', padding: 16, background: 'var(--bg-base)' }}>
+      <Card style={{ width: 'min(360px,92vw)' }}>{Brand}{children}</Card>
+    </div>
+  )
+
+  // 加载中：pubconfig 未回来前不闪现登录表单
+  if (needsSetup === null) return shell(<div style={{ textAlign: 'center', padding: 12 }}><Spin /></div>)
+
+  // 首次：必须先设置口令，成功即已登录
+  if (needsSetup) {
+    return shell(
+      <Form
+        layout="vertical"
+        onFinish={async (v) => {
+          setLoading(true)
+          try {
+            await api('POST', '/setup', { password: v.password })
+            onOk()
+          } catch (e: any) {
+            message.error(/WEAK_PASSWORD/.test(e.message) ? t('auth.passwordMin') : t('auth.setupFailed'))
+          } finally { setLoading(false) }
+        }}
+      >
+        <div style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 12, textAlign: 'center' }}>{t('auth.setupHint')}</div>
+        <Form.Item name="password" rules={[{ required: true, min: 6, message: t('auth.passwordMin') }]}>
+          <Input.Password size="large" placeholder={t('auth.setupPassword')} autoFocus />
+        </Form.Item>
+        <Form.Item name="confirm" dependencies={['password']} rules={[
+          { required: true, message: t('auth.confirmRequired') },
+          ({ getFieldValue }) => ({ validator(_, value) { if (!value || getFieldValue('password') === value) return Promise.resolve(); return Promise.reject(new Error(t('auth.passwordMismatch'))) } }),
+        ]}>
+          <Input.Password size="large" placeholder={t('auth.setupConfirm')} />
+        </Form.Item>
+        <Button type="primary" size="large" block htmlType="submit" loading={loading}>{t('auth.setupSubmit')}</Button>
+      </Form>
+    )
+  }
+
+  return shell(
+    <Form
+      initialValues={{ password: saved, remember: !!saved }}
+      onFinish={async (v) => {
+        setLoading(true)
+        try {
+          await api('POST', '/login', { password: v.password, code: (v.code || '').trim() })
+          try { v.remember ? localStorage.setItem(PW_KEY, v.password) : localStorage.removeItem(PW_KEY) } catch {}
+          onOk()
+        }
+        catch (e: any) {
+          message.error(/BAD_CODE/.test(e.message) ? t('auth.badCode') : /LOCKED/.test(e.message) ? t('auth.locked') : t('auth.loginFailed'))
+        } finally { setLoading(false) }
+      }}
+    >
+      <Form.Item name="password" rules={[{ required: true, message: t('auth.passwordRequired') }]}>
+        <Input.Password size="large" placeholder={t('auth.password')} autoFocus={!saved} />
+      </Form.Item>
+      {totp && (
+        <Form.Item name="code" rules={[{ required: true, message: t('auth.codeRequired') }]}>
+          <Input size="large" placeholder={t('auth.codePlaceholder')} inputMode="numeric" maxLength={6} autoFocus={!!saved} />
+        </Form.Item>
+      )}
+      <Form.Item name="remember" valuePropName="checked" style={{ marginBottom: 12 }}>
+        <Checkbox>{t('auth.rememberPassword')}</Checkbox>
+      </Form.Item>
+      <Button type="primary" size="large" block htmlType="submit" loading={loading}>{t('auth.login')}</Button>
+    </Form>
   )
 }
 
@@ -2148,6 +2191,7 @@ function EnvPage() {
             </Space>
           </Card>
           {installGuide}
+          <ChangePasswordCard />
           <TwoFactorCard />
         </Space>
       )},
@@ -2308,6 +2352,42 @@ function BrowserCard() {
           <Button loading={relaunching} onClick={relaunch}>{t('settings.browserRelaunch')}</Button>
         </Space>
       </Space>
+    </Card>
+  )
+}
+
+// ── 修改登录口令：校验旧口令后写回 config.yaml，即时生效 ──
+function ChangePasswordCard() {
+  const { message } = AntApp.useApp()
+  const { t } = useI18n()
+  const [busy, setBusy] = useState(false)
+  const [form] = Form.useForm()
+  return (
+    <Card title={t('password.title')}>
+      <Form form={form} layout="vertical" style={{ maxWidth: 360 }}
+        onFinish={async (v) => {
+          setBusy(true)
+          try {
+            await api('POST', '/password', { old: v.old, new: v.new })
+            message.success(t('password.changed')); form.resetFields()
+          } catch (e: any) {
+            message.error(/BAD_PASSWORD/.test(e.message) ? t('password.badOld') : /WEAK_PASSWORD/.test(e.message) ? t('password.weak') : e.message)
+          } finally { setBusy(false) }
+        }}>
+        <Form.Item name="old" label={t('password.old')} rules={[{ required: true, message: t('password.oldRequired') }]}>
+          <Input.Password autoComplete="current-password" />
+        </Form.Item>
+        <Form.Item name="new" label={t('password.new')} rules={[{ required: true, min: 6, message: t('password.weak') }]}>
+          <Input.Password autoComplete="new-password" />
+        </Form.Item>
+        <Form.Item name="confirm" label={t('password.confirm')} dependencies={['new']} rules={[
+          { required: true, message: t('password.confirmRequired') },
+          ({ getFieldValue }) => ({ validator(_, value) { if (!value || getFieldValue('new') === value) return Promise.resolve(); return Promise.reject(new Error(t('password.mismatch'))) } }),
+        ]}>
+          <Input.Password autoComplete="new-password" />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" loading={busy}>{t('password.submit')}</Button>
+      </Form>
     </Card>
   )
 }
