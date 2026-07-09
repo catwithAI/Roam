@@ -14,7 +14,7 @@ ttmux 有 **两种使用模式**，按需取用，也可叠加：
 
 - [一、本地 CLI](#一本地-cli)
 - [二、远程控制台](#二远程控制台)
-- [三、配置项（.env）](#三配置项env)
+- [三、配置项（config.yaml）](#三配置项configyaml)
 - [四、远程办公 —— frp 内网穿透](#四远程办公--frp-内网穿透)
 - [五、可选能力](#五可选能力)
 - [六、升级与卸载](#六升级与卸载)
@@ -40,7 +40,7 @@ ttmux 有 **两种使用模式**，按需取用，也可叠加：
 ### 1. 一键安装（推荐）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ybz21/ttmux/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
 ```
 
 `install.sh` 是 `scripts/` 之上的**瘦编排器**——先做系统检查（平台/架构识别、装 `tmux`），
@@ -100,7 +100,7 @@ ttmux status build
 
 ## 二、远程控制台
 
-远程控制台（`ttmux-web`）目前**从源码运行**：克隆仓库 → 配 `.env` → 一键脚本。装在你的开发机 / 服务器上，本节先让它在本机 / 局域网跑起来；要从外网随地访问，见 [四、远程办公](#四远程办公--frp-内网穿透)。
+远程控制台（`ttmux-web`）目前**从源码运行**：克隆仓库 → 一键脚本（配置见 `~/.roam/config.yaml`，首次运行自动生成）。装在你的开发机 / 服务器上，本节先让它在本机 / 局域网跑起来；要从外网随地访问，见 [四、远程办公](#四远程办公--frp-内网穿透)。
 
 ### 1. 前置
 
@@ -109,10 +109,9 @@ ttmux status build
 ### 2. 一键启动
 
 ```bash
-git clone https://github.com/ybz21/ttmux.git
-cd ttmux
+git clone https://github.com/ybz21/Roam.git
+cd roam
 
-cp .env.example .env          # 按需改口令/端口（见下方「配置项」）
 bash install.sh               # 构建产物：前端 dist + 后端二进制（[3] backend 模块）
 ./start.sh                    # 直接启动已构建产物（不重新编译）
 ```
@@ -129,7 +128,7 @@ bash install.sh               # 构建产物：前端 dist + 后端二进制（[
 ==> 手机/平板（同 WiFi）: http://192.168.x.x:13579
 ```
 
-浏览器打开该地址，用 `TTMUX_WEB_PASSWORD` 登录。
+浏览器打开该地址：**首次启动口令为空**，在 Web 界面里设置口令后即可进入（之后可在 **设置 → 修改密码** 或 `~/.roam/config.yaml` 的 `web.password` 里改）。
 
 > 增量构建（`--dev`）：前端/后端**有改动才重新编译**，没改动直接复用产物，二次启动很快。
 
@@ -165,31 +164,41 @@ cd frontend && npm run dev                                             # 前端 
 
 ---
 
-## 三、配置项（.env）
+## 三、配置项（config.yaml）
 
-仓库根的 `.env` 由 `start.sh` 自动加载；**已存在的真实环境变量优先于 `.env`**。命令行 flag（`-addr`/`-web`）又优先于环境变量。
+配置现在集中在 **`~/.roam/config.yaml`**，首次运行时从内置模板自动生成（仓库内参考副本见 [`../../configs/config.yaml.template`](../../configs/config.yaml.template)）。生效优先级为 **命令行 flag > 环境变量 > 配置文件 > 默认值**。
 
-| 变量 | 默认 | 说明 |
+环境变量现在主要用 `ROAM_*` 前缀（如 `ROAM_WEB_PASSWORD`、`ROAM_WEB_BIND`）；为兼容旧版，**`TTMUX_*` 别名（`TTMUX_WEB_PASSWORD`、`TTMUX_WEB_BIND` 等）仍然被识别**。
+
+| 配置项 / 环境变量 | 默认 | 说明 |
 |------|------|------|
-| `TTMUX_WEB_PASSWORD` | 留空则 `start.sh` 首次启动随机生成并写回 `.env`（启动日志会打印） | 登录口令。改密码：编辑 `.env` 后重启。**务必用强口令。** |
-| `TTMUX_WEB_BIND` | `start.sh` → `0.0.0.0:13579`；裸二进制 → `0.0.0.0:8080` | 监听地址。`0.0.0.0` = 局域网可达；`127.0.0.1` = 仅本机。 |
+| `web.password` / `ROAM_WEB_PASSWORD`（旧：`TTMUX_WEB_PASSWORD`） | 留空 | 登录口令。**首次启动为空**：打开 Web 控制台后在界面里设置口令再进入（不再随机生成写回文件）。之后可在 **设置 → 修改密码** 里改，或直接编辑 `~/.roam/config.yaml` 的 `web.password`。**务必用强口令。** |
+| `web.bind` / `ROAM_WEB_BIND`（旧：`TTMUX_WEB_BIND`） | `0.0.0.0:13579` | 监听地址。`0.0.0.0` = 局域网可达；`127.0.0.1` = 仅本机。 |
+| `web.tls` | `true` | 是否启用自签 HTTPS（手机经局域网用麦克风/剪贴板需安全上下文）。 |
+| `web.tls_san` | `[]` | 自签证书追加的 SAN 列表。 |
 | `TTMUX_BIN` | `start.sh` 设为仓库内 `./ttmux` | 后端调用的 ttmux 路径。 |
-| `TTMUX_WEB_2FA` | 关闭 | 设为 `off/0/false/no` 让初始 TOTP 种子失效；两步验证也可在控制台「系统配置」里开关。 |
-| `TTMUX_WEB_TOTP_SECRET` | 空 | 两步验证密钥初始种子（base32）；启用后状态以 `totp.json` 为准。 |
-| `TTMUX_WEB_LOCK_AFTER` | `10` | 连续登录失败多少次后锁定。 |
-| `TTMUX_WEB_LOCK_SECS` | `30` | 锁定时长（秒）。 |
-| `TTMUX_DATA` | `~/.local/share/ttmux` | 数据目录（日志、`totp.json` 等）。 |
+| `web.two_fa` / `ROAM_WEB_2FA`（旧：`TTMUX_WEB_2FA`） | 关闭 | 设为 `off/0/false/no` 让初始 TOTP 种子失效；两步验证也可在控制台「系统配置」里开关。 |
+| `web.totp_secret` / `ROAM_WEB_TOTP_SECRET`（旧：`TTMUX_WEB_TOTP_SECRET`） | 空 | 两步验证密钥初始种子（base32）；启用后状态以 `totp.json` 为准。 |
+| `web.lock_after` / `ROAM_WEB_LOCK_AFTER`（旧：`TTMUX_WEB_LOCK_AFTER`） | `10` | 连续登录失败多少次后锁定。 |
+| `web.lock_secs` / `ROAM_WEB_LOCK_SECS`（旧：`TTMUX_WEB_LOCK_SECS`） | `30` | 锁定时长（秒）。 |
+| `ROAM_DATA`（旧：`TTMUX_DATA`） | `~/.roam` | 数据目录（日志、`totp.json` 等）；旧的 `~/.ttmux`、`~/.local/share/ttmux` 首次运行会自动迁移过来。 |
 | `TTMUX_CHROME_CDP` | `http://127.0.0.1:9222` | 浏览器镜像对接的 Chrome 调试端口。 |
 | `TTMUX_CHROME_SCALE` | `2` | 浏览器镜像渲染像素密度（越大越清晰、越吃带宽）。 |
 | `TTMUX_WEB_LOG` | `/tmp/ttmux-web.log` | 守护进程日志路径（仅 `start.sh`）。 |
 | `TTMUX_WEB_PID` | `/tmp/ttmux-web.pid` | 守护进程 PID 文件（仅 `start.sh`）。 |
 
-`.env` 示例：
+`~/.roam/config.yaml` 示例：
 
-```dotenv
-TTMUX_WEB_PASSWORD=请改成强口令
-TTMUX_WEB_BIND=0.0.0.0:13579
-# TTMUX_BIN=/path/to/ttmux
+```yaml
+web:
+  password: ""            # empty = set it in the Web UI on first launch
+  bind: 0.0.0.0:13579
+  tls: true
+  tls_san: []
+  totp_secret: ""
+  two_fa: ""
+  lock_after: 10
+  lock_secs: 30
 ```
 
 ---
@@ -361,5 +370,5 @@ rm -rf ~/.ttmux                            # 蜂群库（meta.db + 各群 swarm.
 | 端口被占用 / 想换端口 | 改 `TTMUX_WEB_BIND`，或 `./start.sh stop` 清掉旧进程。 |
 | 前端是「内嵌回退页」很简陋 | 说明没构建 React。跑 `./start.sh --dev` 或手动 `vite build`。 |
 | 浏览器标签连不上 | 确认装了 `google-chrome`；检查 `TTMUX_CHROME_CDP` 指向的端口。 |
-| 忘了口令 | 改 `.env` 的 `TTMUX_WEB_PASSWORD` 后 `./start.sh stop && ./start.sh`。 |
+| 忘了口令 | 在控制台 **设置 → 修改密码** 里改；或编辑 `~/.roam/config.yaml` 的 `web.password` 后 `./start.sh stop && ./start.sh`。 |
 | 看后端日志 | `./start.sh logs`（默认 `/tmp/ttmux-web.log`）。 |

@@ -10,8 +10,11 @@
 #   scripts/install/install-chrome.sh  [2/3] node + playwright + chrome CLI
 #   scripts/install/install-backend.sh [3/3] 构建后端产物（dist + 二进制），不启动
 #
-# 一行安装（k3s 风格）：
-#   curl -sfL https://raw.githubusercontent.com/ybz21/ttmux/main/install.sh | bash
+# 一行安装（k3s 风格，从源码构建全部组件）：
+#   curl -sfL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
+#
+# 只想「下载即用」的单一二进制？无需本脚本，直接下 release 里的 roam-<os>-<arch>：
+#   见 README「安装」一节（下载 → chmod +x → 运行）。
 #
 # 本地 checkout 直接 source scripts/*；curl|bash 远程则按需从 GitHub raw 下载各模块。
 # 装完只产出产物、不启动服务；启动用：bash start.sh  /  bash start.sh --dev
@@ -24,7 +27,7 @@
 set -euo pipefail
 
 # ── 配置 ─────────────────────────────────────────────────────────
-REPO="ybz21/ttmux"
+REPO="ybz21/Roam"
 BRANCH="${TTMUX_INSTALL_BRANCH:-main}"
 INSTALL_DIR="${HOME}/.local/bin"
 SKILL_DIR="${HOME}/.claude/skills"
@@ -67,7 +70,7 @@ load install/install-backend.sh
 
 # ── 主流程 ───────────────────────────────────────────────────────
 echo ""
-echo -e "  ${bold}ttmux${reset} ${dim}— AI-native tmux 部署脚本${reset}"
+echo -e "  ${bold}Roam${reset} ${dim}— AI-native tmux 部署脚本${reset}"
 echo ""
 
 preflight            # 平台横幅 + tmux + 建目录
@@ -87,9 +90,10 @@ fi
 echo ""
 echo -e "  ${bold}部署完成!${reset}"
 echo ""
-echo -e "  ${dim}启动后端服务:${reset}"
+echo -e "  ${dim}启动 Web 控制台:${reset}"
 echo -e "    bash start.sh            ${dim}# 直接启动已构建产物${reset}"
 echo -e "    bash start.sh --dev      ${dim}# 开发：每次重新编译${reset}"
+echo -e "    ${dim}首次打开网页需设置登录口令；配置在 ~/.roam/config.yaml${reset}"
 echo ""
 echo -e "  ${dim}试试 CLI:${reset}"
 echo -e "    ttmux help"

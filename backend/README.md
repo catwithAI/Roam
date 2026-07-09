@@ -11,18 +11,24 @@ ttmux 的 Web 控制台后端，是 ttmux CLI 的薄封装：读 = 调 `ttmux <c
 ./start.sh --dev
 ```
 
-配置走仓库根目录的 **`.env`**（见 `.env.example`），真实环境变量优先于 `.env`：
+配置走 **`~/.roam/config.yaml`**（首次启动由内嵌模板自动生成；schema 见仓库
+[`configs/config.yaml.template`](../configs/config.yaml.template)）。优先级：命令行 flag >
+环境变量（`ROAM_*`，兼容旧 `TTMUX_*`）> 配置文件 > 默认值：
+```yaml
+web:
+  password: ""            # 登录口令；留空 = 首次打开网页时在界面上设置
+  bind: 0.0.0.0:13579     # 监听地址（默认所有网卡，手机同 WiFi 可访问）
+  tls: true               # 自签 HTTPS（手机麦克风/剪贴板需安全上下文）
 ```
-TTMUX_WEB_PASSWORD=                 # 登录口令；留空则 start.sh 首次启动随机生成并写回 .env
-TTMUX_WEB_BIND=0.0.0.0:8080        # 监听地址（默认监听所有网卡，手机同 WiFi 可访问）
-```
-> ⚠ 默认监听 `0.0.0.0`，局域网内任何设备可访问——请使用强口令；外网访问走 Tailscale / Cloudflare Tunnel，不要直开公网端口。
+> ⚠ 默认监听 `0.0.0.0`，局域网内任何设备可访问——首次务必设置强口令；外网访问走
+> Tailscale / Cloudflare Tunnel，不要直开公网端口。
 
-手动运行（flag 覆盖 env）：
+手动运行（flag 覆盖配置）：
 ```bash
 cd backend && go build -o ttmux-web ./cmd
-TTMUX_BIN=../ttmux TTMUX_WEB_PASSWORD=secret ./ttmux-web -addr 127.0.0.1:8080 -web ../frontend/dist
+TTMUX_BIN=../ttmux ./ttmux-web -addr 127.0.0.1:8080 -web ../frontend/dist
 ```
+单一自包含二进制（内嵌前端 + ttmux CLI）：`scripts/build/build-roam.sh`。
 
 ## 已实现
 

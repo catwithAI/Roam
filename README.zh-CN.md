@@ -114,10 +114,28 @@ Roam 的重点不是“多一个终端工具”，而是让开发机变成一个
 
 ## 安装与启动
 
+### 方式 A — 下载单一二进制（推荐）
+
+`roam` 是把前端与 `ttmux` CLI 内嵌在一起的自包含二进制。到
+[Releases](https://github.com/ybz21/Roam/releases) 下载对应 OS/arch 的构建后直接运行：
+
+```bash
+# 例：Linux x86_64
+curl -fsSL -o ~/.local/bin/roam \
+  https://github.com/ybz21/Roam/releases/latest/download/roam-linux-amd64
+chmod +x ~/.local/bin/roam
+roam                    # 启动 Web 控制台，监听 0.0.0.0:13579
+```
+
+首次启动**没有口令**：在浏览器打开控制台，先设置登录口令再进入。配置在
+`~/.roam/config.yaml`（首次运行自动生成）；之后也可在**「设置 → 修改登录口令」**里改。
+
+### 方式 B — 从源码构建
+
 一行安装 CLI 并构建 Web 控制台：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ybz21/ttmux/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
 ```
 
 `install.sh` 是 `scripts/` 之上的瘦编排器——先做系统检查，再跑三个模块：
@@ -129,15 +147,15 @@ clone 里则直接 source 本地模块。`TTMUX_SKIP_BACKEND=1` 只装 CLI/chrom
 然后在仓库目录里启动 Web 控制台：
 
 ```bash
-cp .env.example .env
 ./start.sh             # 直接启动已构建产物（不重新编译）
 # ./start.sh --dev     # 开发模式：每次重新编译前端+后端
 ```
 
 `start.sh` 还支持 `stop` / `status` / `logs` / `fg`。
 
-默认监听 `0.0.0.0:13579`，局域网设备可以直接访问。正式使用前请修改 `.env` 里的
-访问口令；远程访问建议走 Tailscale、Cloudflare Tunnel、SSH forwarding 或 frp。
+默认监听 `0.0.0.0:13579`，局域网设备可以直接访问。首次启动在网页上设置登录口令；
+之后可编辑 `~/.roam/config.yaml` 或用**「设置 → 修改登录口令」**修改。远程访问建议走
+Tailscale、Cloudflare Tunnel、SSH forwarding 或 frp。
 
 通过 **frp 暴露并保持 HTTPS**（让手机语音输入、剪贴板经隧道仍可用）的配置见
 **[docs/deploy/frp.md](docs/deploy/frp.md)**（中英双语）。

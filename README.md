@@ -146,10 +146,31 @@ closed.
 
 ## Install And Start
 
+### Option A — download the single binary (recommended)
+
+`roam` is a self-contained binary with the frontend and the `ttmux` CLI embedded.
+Download the build for your OS/arch from the
+[Releases](https://github.com/ybz21/Roam/releases) page, then run it:
+
+```bash
+# example: Linux x86_64
+curl -fsSL -o ~/.local/bin/roam \
+  https://github.com/ybz21/Roam/releases/latest/download/roam-linux-amd64
+chmod +x ~/.local/bin/roam
+roam                    # starts the Web console on 0.0.0.0:13579
+```
+
+On first launch there is **no password**: open the Web console in a browser and
+set a login password before entering. Config lives in `~/.roam/config.yaml`
+(generated on first run); you can also change the password later under
+**Settings → Change password**.
+
+### Option B — build from source
+
 Install the CLI and build the Web console with one line:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ybz21/ttmux/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ybz21/Roam/main/install.sh | bash
 ```
 
 `install.sh` is a thin orchestrator over `scripts/`: it runs a system preflight
@@ -163,7 +184,6 @@ GitHub on demand; inside a clone, it sources the local modules directly.
 Then start the Web console from the repository:
 
 ```bash
-cp .env.example .env
 ./start.sh             # start built artifacts directly, without recompiling
 # ./start.sh --dev     # development mode: rebuild frontend + backend each run
 ```
@@ -171,7 +191,8 @@ cp .env.example .env
 `start.sh` also supports `stop` / `status` / `logs` / `fg`.
 
 By default, the Web console listens on `0.0.0.0:13579`, so devices on the same
-LAN can reach it. Before real use, change the access password in `.env`; for
+LAN can reach it. On first launch you set the login password in the Web UI; you
+can later edit `~/.roam/config.yaml` or use **Settings → Change password**. For
 remote access, prefer Tailscale, Cloudflare Tunnel, SSH forwarding, or frp.
 
 Exposing Roam through **frp with HTTPS** so mobile voice input and clipboard

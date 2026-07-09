@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # ttmux - AI-native tmux wrapper (Roam CLI)
-# https://github.com/ybz21/roam
+# https://github.com/ybz21/Roam
 #
 # ⚠ 本文件由 cli/ttmux-cli/build.sh 自动生成，请勿直接编辑。
 #   改 cli/ttmux-cli/lib/*.sh 后运行 cli/ttmux-cli/build.sh 重新生成。
