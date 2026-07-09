@@ -41,6 +41,7 @@ type Config struct {
 	LockAfter    int
 	LockSecs     int
 	SavePassword func(string) error // 把登录口令落盘到 config.yaml（首次设置/改密用）
+	Version      string             // roam 版本号（关于页展示 + 检测更新）
 }
 
 func New(cfg Config) *gin.Engine {
@@ -59,8 +60,11 @@ func New(cfg Config) *gin.Engine {
 	// 公开端点
 	r.POST("/api/login", a.Login)
 	r.POST("/api/logout", a.Logout)
-	r.POST("/api/setup", a.Setup)        // 首次设置口令（仅当尚未设置口令时可用），成功即发会话
-	r.GET("/api/pubconfig", a.PubConfig) // 登录页据此决定是否要动态码 / 是否需首次设置
+	r.POST("/api/setup", a.Setup)                // 首次设置口令（仅当尚未设置口令时可用），成功即发会话
+	r.GET("/api/pubconfig", a.PubConfig)         // 登录页据此决定是否要动态码 / 是否需首次设置
+	r.GET("/api/version", func(c *gin.Context) { // roam 版本 + 仓库（关于页/检测更新，免登录）
+		c.JSON(http.StatusOK, gin.H{"data": gin.H{"version": cfg.Version, "repo": "ybz21/Roam"}})
+	})
 
 	// 下载自签证书（免登录）：手机装为受信任证书后即把本站当安全上下文，
 	// 可装成全屏 PWA、麦克风/剪贴板可用。TLS 关闭或证书不存在时返回 404。

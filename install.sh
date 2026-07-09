@@ -219,9 +219,35 @@ EOF
   info "已注册系统级 systemd 服务：sudo systemctl status ${SERVICE_NAME}"
 }
 
+# macOS：用 launchd（LaunchAgent）常驻，开机自启 + 崩溃重拉。
+install_service_launchd() {
+  local plist="${HOME}/Library/LaunchAgents/com.roam.console.plist"
+  mkdir -p "${HOME}/Library/LaunchAgents" "${HOME}/.roam"
+  cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.roam.console</string>
+  <key>ProgramArguments</key><array><string>${BIN_DIR}/roam</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${HOME}/.roam/roam.log</string>
+  <key>StandardErrorPath</key><string>${HOME}/.roam/roam.log</string>
+</dict>
+</plist>
+EOF
+  launchctl unload "$plist" 2>/dev/null || true
+  if launchctl load "$plist" 2>/dev/null; then
+    info "已注册 launchd 服务：launchctl {unload|load} ${plist}（日志 ~/.roam/roam.log）"
+  else
+    warn "launchctl load 失败，可手动运行：${BIN_DIR}/roam"
+  fi
+}
+
 # ── 主流程 ───────────────────────────────────────────────────────
 echo ""
-echo -e "  ${bold}Roam${reset} ${dim}— 常驻安装（下载二进制 + systemd 常驻）${reset}"
+echo -e "  ${bold}Roam${reset} ${dim}— 常驻安装（下载二进制 + systemd/launchd 常驻）${reset}"
 echo ""
 
 detect_asset
@@ -235,7 +261,7 @@ if [ "${ROAM_NO_SERVICE:-0}" = 1 ]; then
 elif [ "${ROAM_SYSTEM:-0}" = 1 ]; then
   install_service_system
 elif [ "$OS" = darwin ]; then
-  warn "macOS 无 systemd，跳过服务注册；手动运行：${BIN_DIR}/roam（或用 launchd 自建）"
+  install_service_launchd
 else
   install_service_user
 fi
@@ -250,7 +276,11 @@ echo ""
 echo -e "  ${bold}完成!${reset}"
 echo -e "  ${dim}控制台:${reset} https://<本机IP>:${PORT}  ${dim}(默认自签 HTTPS；设 web.tls: false 退回 http)${reset}"
 echo -e "  ${dim}首次打开网页需设置登录口令；配置在 ~/.roam/config.yaml${reset}"
-if [ "${ROAM_NO_SERVICE:-0}" != 1 ] && [ "$OS" != darwin ]; then
-  echo -e "  ${dim}服务:${reset} systemctl --user {status|restart|stop} ${SERVICE_NAME}   ${dim}(或系统级 sudo systemctl …)${reset}"
+if [ "${ROAM_NO_SERVICE:-0}" != 1 ]; then
+  if [ "$OS" = darwin ]; then
+    echo -e "  ${dim}服务:${reset} launchctl {unload|load} ~/Library/LaunchAgents/com.roam.console.plist"
+  else
+    echo -e "  ${dim}服务:${reset} systemctl --user {status|restart|stop} ${SERVICE_NAME}   ${dim}(或系统级 sudo systemctl …)${reset}"
+  fi
 fi
 echo ""

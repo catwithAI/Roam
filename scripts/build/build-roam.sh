@@ -38,9 +38,10 @@ cp -r frontend/dist/. "$WEBUI_DIST/"
 CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
   go -C cli/ttmux-cli-go build -o "$ROOT/$CLIBIN" ./cmd/ttmux-cli-go
 
-# 4) 编译 roam（内嵌前端 + CLI）
+# 4) 编译 roam（内嵌前端 + CLI；版本号由 ROAM_BUILD_VERSION 注入，默认 dev）
 mkdir -p "$(dirname "$OUT")"
+VER="${ROAM_BUILD_VERSION:-dev}"
 CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-  go -C backend build -o "$ROOT/$OUT" ./cmd
+  go -C backend build -ldflags "-X main.version=${VER}" -o "$ROOT/$OUT" ./cmd
 
 echo "built $OUT ($(du -h "$OUT" | cut -f1))"

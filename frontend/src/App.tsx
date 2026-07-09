@@ -2093,11 +2093,32 @@ function PhoneSettingsCard() {
   )
 }
 
-// 关于页：Logo / 版本号 / GitHub 仓库链接（版本取自 /api/info 的 ttmux CLI 版本）
+// 关于页：Logo / roam 版本号 / 检测更新（跳 release 页）/ GitHub 仓库链接
 function AboutPage() {
   const { t } = useI18n()
-  const [version, setVersion] = useState('')
-  useEffect(() => { api('GET', '/info').then((d: any) => setVersion(d?.version || '')).catch(() => {}) }, [])
+  const { message } = AntApp.useApp()
+  const [info, setInfo] = useState<{ version?: string; repo?: string }>({})
+  const [checking, setChecking] = useState(false)
+  const [latest, setLatest] = useState<{ tag: string; url: string; newer: boolean } | null>(null)
+  useEffect(() => { api('GET', '/version').then((d: any) => setInfo(d?.data || {})).catch(() => {}) }, [])
+  const repo = info.repo || 'ybz21/Roam'
+  const releasesUrl = `https://github.com/${repo}/releases`
+  const norm = (v: string) => (v || '').trim().replace(/^v/i, '')
+  const checkUpdate = async () => {
+    setChecking(true); setLatest(null)
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=1`)
+      if (!r.ok) throw new Error(String(r.status))
+      const arr = await r.json()
+      const rel = Array.isArray(arr) ? arr[0] : null
+      if (!rel) { message.info(t('about.noRelease')); return }
+      const tag = rel.tag_name as string
+      const cur = norm(info.version || '')
+      const newer = !cur || cur === 'dev' || norm(tag) !== cur
+      setLatest({ tag, url: rel.html_url || releasesUrl, newer })
+    } catch { message.error(t('about.checkFailed')) }
+    finally { setChecking(false) }
+  }
   return (
     <Card style={{ maxWidth: 520, margin: '0 auto' }}>
       <Space direction="vertical" size={18} align="center" style={{ width: '100%', padding: '28px 0' }}>
@@ -2110,14 +2131,20 @@ function AboutPage() {
         <p style={{ color: 'var(--text-dim)', fontSize: 13, lineHeight: 1.7, margin: 0, textAlign: 'left', maxWidth: 420 }}>
           {t('about.intro')}
         </p>
-        {version && (
-          <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>
-            {t('settings.version')} <code>{version}</code>
-          </div>
-        )}
-        <a href="https://github.com/ybz21/roam" target="_blank" rel="noreferrer"
+        <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>
+          {t('settings.version')} <code>{info.version || '—'}</code>
+        </div>
+        <Space wrap style={{ justifyContent: 'center' }}>
+          <Button loading={checking} onClick={checkUpdate}>{t('about.checkUpdate')}</Button>
+          {latest && (latest.newer
+            ? <a href={latest.url} target="_blank" rel="noreferrer">
+                <Button type="primary">{t('about.newVersion', { tag: latest.tag })}</Button>
+              </a>
+            : <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>{t('about.upToDate')}</span>)}
+        </Space>
+        <a href={`https://github.com/${repo}`} target="_blank" rel="noreferrer"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--text-bright)', fontSize: 14 }}>
-          {ICONS.github}<span>github.com/ybz21/roam</span>
+          {ICONS.github}<span>github.com/{repo}</span>
         </a>
       </Space>
     </Card>

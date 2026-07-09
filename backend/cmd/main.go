@@ -19,6 +19,9 @@ import (
 	"ttmux-web/server"
 )
 
+// version 是 roam 版本号，发布时由 -ldflags "-X main.version=<tag>" 注入（默认 dev）。
+var version = "dev"
+
 func main() {
 	configFlag := flag.String("config", "", "配置文件路径（覆盖 ROAM_CONFIG / ~/.roam/config.yaml）")
 	addrFlag := flag.String("addr", "", "监听地址，如 0.0.0.0:13579（覆盖配置里的 web.bind）")
@@ -104,6 +107,7 @@ func main() {
 		SavePassword: func(newPW string) error {
 			return config.SavePassword(cfgPath, newPW)
 		},
+		Version: version,
 	}
 
 	r := server.New(cfg)
