@@ -185,7 +185,8 @@ RestartSec=3
 WantedBy=default.target
 EOF
   systemctl --user daemon-reload
-  systemctl --user enable --now "${SERVICE_NAME}.service"
+  systemctl --user enable "${SERVICE_NAME}.service"
+  systemctl --user restart "${SERVICE_NAME}.service"   # restart：升级重跑时用新二进制替换旧进程
   # 让用户级服务在未登录时也常驻（服务器场景必需）
   if command -v loginctl >/dev/null; then
     loginctl enable-linger "$USER" 2>/dev/null || warn "loginctl enable-linger 失败：注销后服务可能停止（可 sudo loginctl enable-linger $USER）"
@@ -215,7 +216,8 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
   $sudo systemctl daemon-reload
-  $sudo systemctl enable --now "${SERVICE_NAME}.service"
+  $sudo systemctl enable "${SERVICE_NAME}.service"
+  $sudo systemctl restart "${SERVICE_NAME}.service"   # restart：升级重跑时用新二进制替换旧进程
   info "已注册系统级 systemd 服务：sudo systemctl status ${SERVICE_NAME}"
 }
 
