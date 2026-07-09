@@ -118,6 +118,34 @@ ensure_tmux() {
   command -v tmux >/dev/null && info "tmux 已安装" || warn "tmux 未安装：会话/蜂群功能需要它，请手动安装后重试"
 }
 
+# ── Chromium（「浏览器」镜像页需要一台 Chrome/Chromium 才能投屏）─────
+# roam 后端按 google-chrome → chromium → chromium-browser 的顺序在 PATH 里探测，
+# 都没有就会「拉起 Chrome 失败」。ROAM_NO_CHROME=1 可跳过（则浏览器镜像页不可用）。
+ensure_chrome() {
+  [ "${ROAM_NO_CHROME:-0}" = 1 ] && { step "ROAM_NO_CHROME=1：跳过 Chromium（浏览器镜像页将不可用）"; return 0; }
+  if command -v google-chrome >/dev/null || command -v chromium >/dev/null || command -v chromium-browser >/dev/null; then
+    info "Chrome/Chromium 已就绪（浏览器镜像可用）"; return 0
+  fi
+  local sudo=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null && sudo=sudo
+  step "未检测到 Chrome/Chromium，尝试安装 Chromium（较大；ROAM_NO_CHROME=1 可跳过）..."
+  if   command -v apt-get >/dev/null; then
+    $sudo apt-get install -y -qq chromium 2>/dev/null \
+      || $sudo apt-get install -y -qq chromium-browser 2>/dev/null \
+      || { command -v snap >/dev/null && $sudo snap install chromium; }
+  elif command -v dnf    >/dev/null; then $sudo dnf install -y chromium
+  elif command -v pacman >/dev/null; then $sudo pacman -Sy --noconfirm chromium
+  elif command -v zypper >/dev/null; then $sudo zypper -n install chromium
+  elif command -v apk    >/dev/null; then $sudo apk add chromium
+  elif command -v snap   >/dev/null; then $sudo snap install chromium
+  elif command -v brew   >/dev/null; then brew install --cask chromium 2>/dev/null || brew install chromium
+  fi
+  if command -v google-chrome >/dev/null || command -v chromium >/dev/null || command -v chromium-browser >/dev/null; then
+    info "Chromium 已安装（浏览器镜像可用）"
+  else
+    warn "未能自动安装 Chromium：浏览器镜像页不可用。装好后 roam 会自动探测，或设 CHROME_BIN 指向可执行文件；重启：systemctl --user restart roam"
+  fi
+}
+
 # ── systemd 常驻服务 ─────────────────────────────────────────────
 install_service_user() {
   command -v systemctl >/dev/null || { warn "无 systemd，跳过服务注册；手动运行：${BIN_DIR}/roam"; return 0; }
@@ -180,6 +208,7 @@ echo ""
 detect_asset
 install_binary
 ensure_tmux
+ensure_chrome
 
 if [ "${ROAM_NO_SERVICE:-0}" = 1 ]; then
   step "ROAM_NO_SERVICE=1：跳过服务注册"
