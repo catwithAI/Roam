@@ -723,6 +723,8 @@ function TerminalPane(props: {
   const readDropPath = (e: React.DragEvent) =>
     e.dataTransfer.getData('application/x-ttmux-path') || e.dataTransfer.getData('text/plain') || ''
   const isPathDrag = (e: React.DragEvent) => e.dataTransfer.types.includes('application/x-ttmux-path')
+  // 系统文件拖入（非内部路径拖拽）：types 含 'Files'。不接住的话浏览器会把文件当新标签打开。
+  const isFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes('Files')
   const allowPathDrop = (e: React.DragEvent) => {
     if (!isPathDrag(e)) return
     e.preventDefault()
@@ -733,8 +735,32 @@ function TerminalPane(props: {
     const r = e.currentTarget.getBoundingClientRect()
     return e.clientX > r.left + r.width / 2
   }
+  // 从系统拖入真实文件：上传后把绝对路径以 @ 注入当前会话（等同 Ctrl+V 粘图）。
+  // 图片走 /tmp（不污染工作目录），其余文件走会话工作目录。
+  const onTermFileDrop = async (e: React.DragEvent) => {
+    const files = Array.from(e.dataTransfer.files || [])
+    if (!files.length || !active) return
+    const imgs = files.filter((f) => f.type.startsWith('image/'))
+    const rest = files.filter((f) => !f.type.startsWith('image/'))
+    const saved: string[] = []
+    try {
+      if (imgs.length) saved.push(...(await upload('/tmp', imgs)).saved)
+      if (rest.length) {
+        if (!cwd) { message.error(t('chat.cwdMissing')) }
+        else saved.push(...(await upload(cwd, rest)).saved)
+      }
+    } catch (err: any) { message.error(t('terminal.imageUploadFailed', { message: err.message })); return }
+    if (!saved.length) return
+    exitCopyMode()
+    termRefs.current[active]?.send(saved.map((p) => '@' + p).join(' ') + ' ', true)
+  }
   // 拖到终端区：直接把 @路径 送进当前会话（claude/codex TUI 或 shell 提示符的光标处）。
   const onTermDrop = (e: React.DragEvent) => {
+    if (isFileDrag(e) && e.dataTransfer.files?.length) { // 系统文件：上传并注入（无视左右半区，不做分栏）
+      e.preventDefault(); e.stopPropagation(); setDragOver(false)
+      onTermFileDrop(e)
+      return
+    }
     if (!isPathDrag(e)) return
     if (inTermSplitZone(e)) { setDragOver(false); return } // 右半区：不拦截，冒泡给 FileWorkspace 分栏
     e.preventDefault()
@@ -818,8 +844,8 @@ function TerminalPane(props: {
           for (const item of items) {
             for (const type of item.types) {
               if (type.startsWith('image/')) {
-                const blob = await item.getType(type)
-                imageFiles.push(new File([blob], 'image', { type }))
+                // 同一张图多种 MIME 只取一张，避免重复上传出现两次 @路径
+                if (!imageFiles.length) { const blob = await item.getType(type); imageFiles.push(new File([blob], 'image', { type })) }
               } else if (type === 'text/plain') {
                 text = await (await item.getType(type)).text()
               }
@@ -977,6 +1003,7 @@ function TerminalPane(props: {
   const terminalArea = (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', position: 'relative' }}
       onDragOver={(e) => {
+        if (isFileDrag(e)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; setDragOver(true); return } // 系统文件：允许放下并上传
         if (!isPathDrag(e)) return
         if (inTermSplitZone(e)) { setDragOver(false); return } // 右半区：让事件冒泡给 FileWorkspace 显示分栏提示
         e.stopPropagation(); allowPathDrop(e); setDragOver(true)

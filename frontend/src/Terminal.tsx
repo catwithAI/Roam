@@ -302,17 +302,19 @@ const Term = forwardRef<TermHandle, {
     el.addEventListener('contextmenu', onCtx)
     const onPasteCapture = (e: ClipboardEvent) => {
       if (!e.clipboardData?.items) return
-      const files: File[] = []
+      // 一次粘贴只取一张图：同一张截图常以多种 MIME(image/png + image/jpeg…)重复出现，
+      // 全收会重复上传 → 终端里出现两次 @路径。取到第一张就停。
+      let file: File | null = null
       for (let i = 0; i < e.clipboardData.items.length; i++) {
         if (e.clipboardData.items[i].type.startsWith('image/')) {
           const f = e.clipboardData.items[i].getAsFile()
-          if (f) files.push(f)
+          if (f) { file = f; break }
         }
       }
-      if (files.length > 0) {
+      if (file) {
         e.preventDefault()
         e.stopPropagation()
-        onImagePaste?.(files)
+        onImagePaste?.([file])
       }
     }
     el.addEventListener('paste', onPasteCapture, { capture: true })
