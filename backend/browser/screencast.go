@@ -257,18 +257,17 @@ func Handler(c *gin.Context) {
 		mu.Unlock()
 	}
 	forceFrame := func() {
-		q := cur.q
-		maxW, maxH := cur.w, cur.h
 		mu.Lock()
 		if closed {
 			mu.Unlock()
 			return
 		}
-		if auto {
-			if level >= 0 && level < len(ladder) {
-				q = ladder[level].q
-				maxW, maxH = ladder[level].w, ladder[level].h
-			}
+		// cur / auto 会被前端「切画质」消息在运行中改写，故一律在锁内读，避免与切换竞态。
+		q := cur.q
+		maxW, maxH := cur.w, cur.h
+		if auto && level >= 0 && level < len(ladder) {
+			q = ladder[level].q
+			maxW, maxH = ladder[level].w, ladder[level].h
 		}
 		vw, vh, dpr := frameW, frameH, frameDPR
 		mu.Unlock()
@@ -537,52 +536,67 @@ func Handler(c *gin.Context) {
 		}
 	}()
 
-	// 自适应控制环：按 deliveryMs 升降档（仅 auto）
+	// 初始档位标签（自适应显示实时档名，手动显示「手动」）
 	if auto {
-		go func() {
-			t := time.NewTicker(1500 * time.Millisecond)
-			defer t.Stop()
-			up := 0
-			for {
-				<-t.C
-				mu.Lock()
-				if closed {
-					mu.Unlock()
-					return
-				}
-				e := ewma
-				lv := level
+		_ = writeJSON(map[string]any{"type": "level", "q": ladder[level].q, "name": ladder[level].name})
+	} else {
+		_ = writeJSON(map[string]any{"type": "level", "q": cur.q, "name": cur.name})
+	}
+
+	// 自适应控制环：按 deliveryMs 升降档。常驻运行，每拍读 auto 决定是否调档——
+	// 因为「切画质」不再重连(见下方 emulate/quality 消息)，auto 是运行时可切换的共享态，
+	// 不能像以前那样靠「连接时 auto 与否」一次性决定要不要起这个 goroutine。
+	go func() {
+		t := time.NewTicker(1500 * time.Millisecond)
+		defer t.Stop()
+		up := 0
+		for {
+			<-t.C
+			mu.Lock()
+			if closed {
 				mu.Unlock()
-				if e == 0 {
-					continue // 还没有测量样本
-				}
-				next := lv
-				switch {
-				case e > 350 && lv > 0: // 帧到达太慢 → 立刻降档保跟手
-					next = lv - 1
+				return
+			}
+			if !auto { // 手动模式：不调档，清掉累计的升档计数
+				up = 0
+				mu.Unlock()
+				continue
+			}
+			e := ewma
+			lv := level
+			mu.Unlock()
+			if e == 0 {
+				continue // 还没有测量样本
+			}
+			next := lv
+			switch {
+			case e > 350 && lv > 0: // 帧到达太慢 → 立刻降档保跟手
+				next = lv - 1
+				up = 0
+			case e < 130 && lv < len(ladder)-1: // 有余量 → 连续两次才升档（防抖）
+				up++
+				if up >= 2 {
+					next = lv + 1
 					up = 0
-				case e < 130 && lv < len(ladder)-1: // 有余量 → 连续两次才升档（防抖）
-					up++
-					if up >= 2 {
-						next = lv + 1
-						up = 0
-					}
-				default:
-					up = 0
 				}
-				if next != lv {
-					mu.Lock()
+			default:
+				up = 0
+			}
+			if next != lv {
+				mu.Lock()
+				changed := auto // 二次确认仍在自适应（期间可能被切成手动）
+				if changed {
 					level = next
 					ewma = 0 // 换档后重新测量
-					mu.Unlock()
+				}
+				mu.Unlock()
+				if changed {
 					applyLevel(ladder[next])
 					_ = writeJSON(map[string]any{"type": "level", "q": ladder[next].q, "name": ladder[next].name})
 				}
 			}
-		}()
-	} else {
-		_ = writeJSON(map[string]any{"type": "level", "q": cur.q, "name": cur.name})
-	}
+		}
+	}()
 
 	// 前端 → CDP：导航任何模式都允许；鼠标/键盘仅 control 模式转发
 	defer shutdown()
@@ -615,6 +629,8 @@ func Handler(c *gin.Context) {
 			MH        int     `json:"mh"`     // 移动视口高
 			DPR       float64 `json:"dpr"`    // 设备像素比
 			UA        string  `json:"ua"`     // 移动 UA
+			Auto      bool    `json:"auto"`   // quality：true=自适应
+			Q         int     `json:"q"`      // quality：手动 JPEG 质量(10~100)
 		}
 		if json.Unmarshal(data, &ev) != nil {
 			continue
@@ -676,6 +692,34 @@ func Handler(c *gin.Context) {
 			prevMobile, prevUA = ev.Mobile, ev.UA
 			if needReload { // UA 已先于此设好，reload 的首个请求即带新 UA → 服务端出对应版本
 				conn.send("Page.reload", nil)
+			}
+			continue
+		case "quality": // 切画质：同一连接现场改档，【不重连】。
+			// 重连会重设 device metrics，其后的首帧是「视口还没稳」的畸形帧，object-fit 一
+			// letterbox 就是「画面一跳 / 页面忽大忽小」——正是切标清/超清时看到的抖动。改成在
+			// 本连接上现场切 startScreencast 参数(只动传输画质/分辨率，不碰视口)即可根除。
+			if ev.Auto {
+				mu.Lock()
+				auto = true
+				ewma = 0 // 重新测量，让自适应环从当前链路重新上探
+				l := ladder[level]
+				mu.Unlock()
+				applyLevel(l)
+				_ = writeJSON(map[string]any{"type": "level", "q": l.q, "name": l.name})
+			} else {
+				q := ev.Q
+				if q < 10 {
+					q = 10
+				} else if q > 100 {
+					q = 100
+				}
+				mu.Lock()
+				auto = false
+				cur = lvl{q: q, w: 2560, h: 1600, nth: 1, name: "手动"}
+				l := cur
+				mu.Unlock()
+				applyLevel(l)
+				_ = writeJSON(map[string]any{"type": "level", "q": l.q, "name": l.name})
 			}
 			continue
 		}
