@@ -78,12 +78,13 @@ export function ChatShell({ name, dir, accent, title, placeholder, onBack, onRef
 
   const onPaste = async (e: React.ClipboardEvent) => {
     if (!e.clipboardData?.items) return
+    // 一次粘贴只取一张图：同一张截图常以多种 MIME 重复出现，全收会插入两次 @路径
     const imageFiles: File[] = []
     for (let i = 0; i < e.clipboardData.items.length; i++) {
       const item = e.clipboardData.items[i]
       if (item.type.startsWith('image/')) {
         const f = item.getAsFile()
-        if (f) imageFiles.push(makeClipboardImageFile(f, item.type, imageFiles.length))
+        if (f) { imageFiles.push(makeClipboardImageFile(f, item.type, imageFiles.length)); break }
       }
     }
     if (imageFiles.length > 0) {
