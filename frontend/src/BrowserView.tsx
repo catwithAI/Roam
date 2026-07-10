@@ -294,12 +294,13 @@ export default function BrowserView() {
     }
   }
 
-  // control / quality / target 变化才重连；设备/尺寸切换不重连（连上后发 emulate 消息）
+  // control / target 变化才重连；画质切换【不重连】(连上后发 quality 消息，见下面 changeQuality)，
+  // 设备/尺寸切换也不重连(发 emulate 消息)。重连会重设 device metrics、首帧畸形 → 画面跳/页面忽大小。
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     const params = new URLSearchParams()
     if (control) params.set('control', '1')
-    if (quality === 'auto') params.set('auto', '1')
+    if (quality === 'auto') params.set('auto', '1') // 仅首连/换 target 时用来定初始档；之后靠消息切
     else params.set('q', String(quality))
     if (target) params.set('target', target)
     const ws = new WebSocket(`${proto}://${location.host}/api/browser/stream?${params}`)
@@ -357,7 +358,7 @@ export default function BrowserView() {
       if (objURL) URL.revokeObjectURL(objURL)
       ws.close()
     }
-  }, [control, quality, target]) // device 切换不重连，靠下面的 emulate 消息现场切换
+  }, [control, target]) // 画质/device 切换都不重连，靠 quality / emulate 消息现场切换
 
   // 设备切换 / 观看区尺寸变化：在现有连接上发 emulate（同一 CDP 会话 set/clear），不重连
   // → 无闪烁/无竞态，来回切也稳。桌面随窗口大小自适应（stage 变化即重发原生尺寸）。
@@ -370,7 +371,11 @@ export default function BrowserView() {
     act('navigate', { url: smartUrl(url) })
   }
 
-  const changeQuality = (v: Quality) => { setQuality(v); savePreferences({ browserQuality: String(v) }); try { localStorage.setItem(QKEY, String(v)) } catch {} }
+  // 切画质：持久化 + 在现有连接上发消息现场切档（不重连 → 不重设视口 → 不跳）
+  const changeQuality = (v: Quality) => {
+    setQuality(v); savePreferences({ browserQuality: String(v) }); try { localStorage.setItem(QKEY, String(v)) } catch {}
+    send(v === 'auto' ? { type: 'quality', auto: true } : { type: 'quality', auto: false, q: v })
+  }
   const changeDevice = (v: string) => { setDevice(v); savePreferences({ browserDevice: v }); try { localStorage.setItem(DKEY, v) } catch {} }
 
   // F12：打开 Chrome 自带 DevTools（经后端反代 /api/browser/cdp/*，直连该 tab 的 CDP）。
