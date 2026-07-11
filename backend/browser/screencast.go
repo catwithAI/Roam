@@ -231,6 +231,7 @@ func Handler(c *gin.Context) {
 		expW, expH   int    // 本会话期望的视口 CSS 宽高（0 = 无覆盖，不自愈）
 		reassert     func() // 重发本会话 device metrics 覆盖
 		lastReassert int64  // 上次自愈时刻(ms)；600ms 防抖，避免与另一活跃会话打乒乓
+		lastStreamMs int64  // 最近一帧正常 screencast 到达时间；流仍活跃时无需额外请求补帧
 	)
 
 	// 初始档：auto 用阶梯，手动用前端给的 q（分辨率给足，质量听用户）
@@ -284,40 +285,27 @@ func Handler(c *gin.Context) {
 		refreshMu.Lock()
 		refreshVersion++
 		version := refreshVersion
-		lead := time.Since(lastForced) >= 90*time.Millisecond
-		if lead {
-			lastForced = time.Now()
-		}
 		refreshMu.Unlock()
 
-		capturePair := func() {
-			forceFrame()
-			time.Sleep(180 * time.Millisecond)
-			forceFrame()
-		}
-		if lead {
-			go func() {
-				time.Sleep(55 * time.Millisecond)
-				capturePair()
-			}()
-		}
+		// 严格 trailing debounce：连续输入合并为一次；正常 screencast 仍在产帧时完全不补。
+		// 旧实现沿用截图时代的 leading/trailing 双连发，一次按键可能重启 screencast 2~4 次，
+		// 即使 latest-only 最终丢帧，Chrome/CDP 仍会承担重复 JPEG 编码与 base64 传输开销。
 		go func() {
 			time.Sleep(150 * time.Millisecond)
 			refreshMu.Lock()
-			if version == refreshVersion && time.Since(lastForced) >= 90*time.Millisecond {
-				lastForced = time.Now()
+			if version != refreshVersion || time.Since(lastForced) < 500*time.Millisecond {
 				refreshMu.Unlock()
-				capturePair()
 				return
 			}
+			mu.Lock()
+			streamQuiet := nowMs()-lastStreamMs >= 250
+			mu.Unlock()
+			if streamQuiet {
+				lastForced = time.Now()
+			}
 			refreshMu.Unlock()
-		}()
-	}
-	scheduleForceFrames := func(count int, gap time.Duration) {
-		go func() {
-			for i := 0; i < count; i++ {
-				scheduleForceFrame()
-				time.Sleep(gap)
+			if streamQuiet {
+				forceFrame()
 			}
 		}()
 	}
@@ -470,14 +458,19 @@ func Handler(c *gin.Context) {
 			} else {
 				w, h = frameW, frameH
 			}
-			// 视口自愈：帧的真实视口偏离本会话期望（容差 ±2px）→ 有外部会话踩了覆盖，防抖重设抢回
-			if expW > 0 && w > 0 && (absInt(w-expW) > 2 || absInt(h-expH) > 2) &&
+			lastStreamMs = nowMs()
+			// 视口自愈：帧的真实视口偏离本会话期望（容差 ±2px）→ 有外部会话踩了覆盖，防抖重设抢回。
+			// 异常帧不能继续交给前端，否则即使下一帧恢复，用户仍会看到一次布局/纵横比跳变。
+			mismatched := expW > 0 && w > 0 && (absInt(w-expW) > 2 || absInt(h-expH) > 2)
+			if mismatched &&
 				nowMs()-lastReassert > 600 && reassert != nil {
 				lastReassert = nowMs()
 				heal = reassert
 			}
-			pending = &pend{b64: msg.Params.Data, w: w, h: h}
-			cond.Signal()
+			if !mismatched {
+				pending = &pend{b64: msg.Params.Data, w: w, h: h}
+				cond.Signal()
+			}
 			mu.Unlock()
 			if heal != nil {
 				heal() // 锁外发 CDP（conn 自带写锁），避免网络 IO 占着状态锁
@@ -641,11 +634,11 @@ func Handler(c *gin.Context) {
 		case "nav":
 			if ev.URL != "" {
 				conn.send("Page.navigate", map[string]any{"url": ev.URL})
-				scheduleForceFrames(8, 250*time.Millisecond)
+				scheduleForceFrame()
 			}
 			continue
 		case "refresh":
-			scheduleForceFrames(8, 250*time.Millisecond)
+			scheduleForceFrame()
 			continue
 		case "emulate": // 设备切换：同一会话现场 set/clear，不重连 → 无泄漏/无竞态
 			// 机型/UA 真变了才 reload（让 UA 嗅探站点切移动/桌面版）；纯尺寸变化(桌面 resize)不 reload
