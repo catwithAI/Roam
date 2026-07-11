@@ -416,10 +416,14 @@ export default function BrowserView() {
   // 所以先把屏幕点平移到舞台中心相对、再逆旋转回画面坐标系，最后扣黑边按真实显示区缩放。
   const mapClientXY = (clientX: number, clientY: number) => {
     const r = stageRef.current!.getBoundingClientRect()
+    const img = imgRef.current
     const nw = sizeRef.current.w, nh = sizeRef.current.h
-    // 旋转 90/270 时画面盒子宽高对调
-    const boxW = rotated ? r.height : r.width
-    const boxH = rotated ? r.width : r.height
+    // 必须使用 <img> 变换前的真实布局盒，而不是 stage 尺寸。移动端工具栏显隐后，stage 高会变，
+    // 但图片为了保持缩放比仍按 vp 纵横比维持旧高度并居中裁切；继续拿 stage.h 换算会让点击、
+    // 拖选和触摸坐标整体上下偏移。clientWidth/Height 不受 rotate transform 影响，正好用于先在
+    // 屏幕中心逆旋转，再映射回图片内部坐标。
+    const boxW = img?.clientWidth || (rotated ? r.height : r.width)
+    const boxH = img?.clientHeight || (rotated ? r.width : r.height)
     const scale = Math.min(boxW / nw, boxH / nh) // contain 缩放比
     const dispW = nw * scale, dispH = nh * scale // 画面实际显示尺寸
     const padX = (boxW - dispW) / 2, padY = (boxH - dispH) / 2 // 黑边
