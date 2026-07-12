@@ -29,17 +29,6 @@ func Show(version string, w io.Writer) {
 	fmt.Fprintf(w, "    %s            关闭所有会话\n", g("killall"))
 	fmt.Fprintf(w, "    %s %s  重命名会话\n\n", g("rename"), d("<旧名> <新名>"))
 
-	fmt.Fprintf(w, "  %s %s\n", b("任务编排"), m("(命令 / Agent 统一)"))
-	fmt.Fprintf(w, "    %s %s  批量创建命令任务\n", g("spawn"), d("<组名> <名称> <命令> ..."))
-	fmt.Fprintf(w, "    %s %s  批量创建 Claude/Codex Agent\n", g("spawn"), d("--agent <组名> <名称> <任务> ..."))
-	fmt.Fprintf(w, "    %s %s  查看状态 (命令+Agent)\n", g("status"), d("<组名> [--json]"))
-	fmt.Fprintf(w, "    %s %s  等待任务组完成\n", g("wait"), d("<组名> [--timeout N]"))
-	fmt.Fprintf(w, "    %s %s  收集所有任务输出\n", g("collect"), d("<组名> [--json]"))
-	fmt.Fprintf(w, "    %s %s  向任务/Agent 追加指令\n", g("send"), d("<会话名> <指令>"))
-	fmt.Fprintf(w, "    %s %s  列出 / 清理任务组\n", g("group"), d("ls | kill <组名>"))
-	fmt.Fprintf(w, "    %s %s  捕获会话输出\n", g("capture"), d("<会话> [--lines N]"))
-	fmt.Fprintf(w, "    %s\n\n", d("Agent 选项: --dir <目录>  --model <模型>  --perm <权限模式>  --max-turns <N>"))
-
 	fmt.Fprintf(w, "  %s %s\n", b("蜂群编排"), m("(swarm — 有目标的任务组)"))
 	fmt.Fprintf(w, "    %s %s  新建蜂群\n", g("swarm new"), d("<名> [--goal \"...\"] [--no-master]"))
 	fmt.Fprintf(w, "    %s %s  加成员\n", g("swarm add"), d("<群> <成员> --type task|agent [--kind claude|codex] ..."))

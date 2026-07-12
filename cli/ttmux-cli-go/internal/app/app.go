@@ -95,25 +95,9 @@ func (a App) Run(args []string) error {
 	case "kp":
 		return session.KillPane(a.rt, rest, out)
 
-	// ── task orchestration (native) ──
-	case "spawn":
-		return a.runSpawn(rest)
-	case "wait":
-		return spawn.Wait(a.rt, rest, out)
-	case "agent":
-		return a.runAgent(rest)
+	// ── native helpers ──
 	case "capture":
 		return session.Capture(a.rt, rest, out)
-	case "collect":
-		if len(rest) < 1 {
-			return fmt.Errorf("usage: ttmux collect <group> [--json]")
-		}
-		if len(rest) >= 2 && rest[1] == "--json" {
-			return group.CollectJSON(a.rt, rest[0], out)
-		}
-		return group.CollectText(a.rt, rest[0], out)
-	case "group":
-		return a.runGroup(rest)
 	case "status":
 		return a.runStatus(rest)
 
@@ -139,63 +123,6 @@ func (a App) Run(args []string) error {
 	}
 }
 
-func (a App) runSpawn(args []string) error {
-	switch {
-	case len(args) >= 1 && args[0] == "--agent":
-		rest := args[1:]
-		if len(rest) >= 1 && rest[0] == "--file" {
-			return fileSpawn(a.rt, rest[1:], true)
-		}
-		return spawn.SpawnAgents(a.rt, rest, os.Stdout)
-	case len(args) >= 1 && args[0] == "--file":
-		return fileSpawn(a.rt, args[1:], false)
-	default:
-		return spawn.Spawn(a.rt, args, os.Stdout)
-	}
-}
-
-// fileSpawn parses `<group> <file> [opts]` for the --file spawn forms.
-func fileSpawn(rt runtime.Runtime, args []string, agent bool) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: ttmux spawn [--agent] --file <group> <file> [opts]")
-	}
-	return spawn.SpawnFile(rt, args[0], args[1], args[2:], agent, os.Stdout)
-}
-
-func (a App) runAgent(args []string) error {
-	subcmd := "help"
-	if len(args) > 0 {
-		subcmd = args[0]
-		args = args[1:]
-	}
-	switch subcmd {
-	case "spawn":
-		if len(args) >= 1 && args[0] == "--file" {
-			return fileSpawn(a.rt, args[1:], true)
-		}
-		return spawn.SpawnAgents(a.rt, args, os.Stdout)
-	case "status":
-		return a.runStatus(args)
-	case "send":
-		return session.Send(a.rt, a.swarmSessions(), args, os.Stdout)
-	case "collect":
-		if len(args) < 1 {
-			return fmt.Errorf("usage: ttmux agent collect <group> [--json]")
-		}
-		if len(args) >= 2 && args[1] == "--json" {
-			return group.CollectJSON(a.rt, args[0], os.Stdout)
-		}
-		return group.CollectText(a.rt, args[0], os.Stdout)
-	case "kill":
-		if len(args) < 1 {
-			return fmt.Errorf("usage: ttmux agent kill <group>")
-		}
-		return group.Kill(a.rt, args[0], os.Stdout)
-	default:
-		return fmt.Errorf("unknown subcommand: agent %s", subcmd)
-	}
-}
-
 func (a App) runStatus(args []string) error {
 	if len(args) < 1 {
 		_ = session.List(a.rt, a.swarmSessions(), os.Stdout)
@@ -206,36 +133,6 @@ func (a App) runStatus(args []string) error {
 		return group.StatusJSON(a.rt, args[0], os.Stdout)
 	}
 	return group.Status(a.rt, args[0], os.Stdout)
-}
-
-func (a App) runGroup(args []string) error {
-	subcmd := "ls"
-	if len(args) > 0 {
-		subcmd = args[0]
-		args = args[1:]
-	}
-	switch subcmd {
-	case "ls", "list":
-		if has(args, "--json") {
-			return group.ListJSON(a.rt, os.Stdout)
-		}
-		return group.List(a.rt, a.swarmNames(), os.Stdout)
-	case "status":
-		if len(args) < 1 {
-			return fmt.Errorf("usage: ttmux group status <group>")
-		}
-		if len(args) >= 2 && args[1] == "--json" {
-			return group.StatusJSON(a.rt, args[0], os.Stdout)
-		}
-		return group.Status(a.rt, args[0], os.Stdout)
-	case "kill":
-		if len(args) < 1 {
-			return fmt.Errorf("usage: ttmux group kill <group>")
-		}
-		return group.Kill(a.rt, args[0], os.Stdout)
-	default:
-		return fmt.Errorf("unknown subcommand: group %s", subcmd)
-	}
 }
 
 // swarmSessions returns the set of tmux sessions hidden from native session
