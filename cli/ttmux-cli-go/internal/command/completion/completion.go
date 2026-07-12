@@ -16,7 +16,7 @@ const script = `_ttmux_completions() {
     local cur prev cmds
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    cmds="ls new a attach d detach kill killall rename nw lw kw sp split kp send info source help spawn group capture wait collect status completion agent swarm"
+    cmds="ls new a attach d detach kill killall rename nw lw kw sp split kp send info source help capture status completion swarm"
 
     case "$prev" in
         ttmux)
@@ -26,12 +26,6 @@ const script = `_ttmux_completions() {
             local sessions
             sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null)
             COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
-            return ;;
-        group)
-            COMPREPLY=($(compgen -W "new ls status kill" -- "$cur"))
-            return ;;
-        agent)
-            COMPREPLY=($(compgen -W "spawn status send collect kill" -- "$cur"))
             return ;;
         swarm)
             COMPREPLY=($(compgen -W "new add ls status activate collect migrate adopt done say listen feed watch board task sql archive rm" -- "$cur"))
@@ -48,11 +42,6 @@ const script = `_ttmux_completions() {
             local windows
             windows=$(tmux list-windows -F '#{window_index}' 2>/dev/null)
             COMPREPLY=($(compgen -W "$windows" -- "$cur"))
-            return ;;
-        wait|collect)
-            local groups
-            groups=$(ls ~/.local/share/ttmux/groups/*.group 2>/dev/null | xargs -I{} basename {} .group)
-            COMPREPLY=($(compgen -W "$groups" -- "$cur"))
             return ;;
     esac
 }
