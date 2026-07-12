@@ -804,6 +804,12 @@ const zhCN = {
   'session.autoReviewNeedsAgent': '先在上方选择 Claude 或 Codex',
 
   // W1 新建会话 worktree 展开态
+  'session.promptPlaceholder': '要干什么？用自然语言描述任务,会话名/分支名会自动派生,任务将作为第一条指令发给 Agent…',
+  'session.promptOrNameRequired': '写点要干什么,或在「高级」里给个会话名',
+  'session.advanced': '高级(会话名 / 分支)',
+  'session.nameLabel': '会话名',
+  'session.wt.autoBranchNote': '开工后由 Agent 改成语义化分支名',
+  'session.wt.namingHint': '开工前先给当前分支起个语义化名字:git branch -m roam/<简短英文kebab-case>,然后开始下面的任务。',
   'session.wt.where': '在哪干活',
   'session.wt.mainRepo': '主仓库',
   'session.wt.newWt': '新建 worktree',

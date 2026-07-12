@@ -804,6 +804,12 @@ const enUS = {
   'session.autoReviewNeedsAgent': 'Pick Claude or Codex above first',
 
   // W1 new-session worktree expansion
+  'session.promptPlaceholder': 'What should be done? Describe the task in natural language — session/branch names are derived, and this goes to the agent as its first instruction…',
+  'session.promptOrNameRequired': 'Describe the task, or set a session name under Advanced',
+  'session.advanced': 'Advanced (session / branch name)',
+  'session.nameLabel': 'Session',
+  'session.wt.autoBranchNote': 'agent renames the branch semantically once it starts',
+  'session.wt.namingHint': 'Before starting, rename the current branch to something semantic: git branch -m roam/<short-kebab-case>. Then proceed with the task below.',
   'session.wt.where': 'Workspace',
   'session.wt.mainRepo': 'Main repo',
   'session.wt.newWt': 'New worktree',
