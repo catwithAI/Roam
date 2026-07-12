@@ -812,6 +812,8 @@ const enUS = {
 
   // W4 worktree management drawer
   'worktree.entry': 'Worktree',
+  'worktree.groupOrphans': '{count} orphaned',
+  'worktree.groupOrphansTip': 'This repo has worktrees with no session; click to manage',
   'worktree.groupCount': '{count} worktrees',
   'worktree.manage': 'Manage',
   'worktree.sessionTagTip': 'Worktree {path} · click to manage',

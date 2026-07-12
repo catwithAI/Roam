@@ -1911,6 +1911,7 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
   })
 
   // ── W2 仓库分组：同仓库 ≥2 个 worktree 会话聚组，组头可折叠(记 localStorage) ──
+  const screens = useBreakpoint()
   const [wtCollapsed, setWtCollapsed] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem('ttmux_wt_groups') || '{}') } catch { return {} }
   })
@@ -1920,6 +1921,23 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
     return next
   })
   const repoOf = (name: string) => { const a = wtAnn[name]; return a?.primary?.linked ? a.primary.repo as string : '' }
+  // 分组仓库的 worktree 全貌(总数/孤儿)：让会话页感知还有没挂会话的 worktree
+  const [repoWt, setRepoWt] = useState<Record<string, { total: number; orphans: number }>>({})
+  useEffect(() => {
+    const repos = Array.from(new Set(Object.values(wtAnn)
+      .map((a: any) => (a?.primary?.linked ? a.primary.repo as string : ''))
+      .filter(Boolean)))
+    if (!repos.length) { setRepoWt({}); return }
+    let stop = false
+    Promise.all(repos.map(async (r) => {
+      try {
+        const res = await api('GET', `/git/worktrees?dir=${encodeURIComponent(r)}`)
+        const wts = (Array.isArray(res?.data) ? res.data : []).filter((w: any) => !w.isMain && !w.prunable)
+        return [r, { total: wts.length, orphans: wts.filter((w: any) => !(w.sessions || []).length).length }] as const
+      } catch { return [r, { total: 0, orphans: 0 }] as const }
+    })).then((es) => { if (!stop) setRepoWt(Object.fromEntries(es)) })
+    return () => { stop = true }
+  }, [wtAnn])
   const groupCounts: Record<string, number> = {}
   for (const s of sorted) { const r = repoOf(s.name); if (r) groupCounts[r] = (groupCounts[r] || 0) + 1 }
   const entries: any[] = []
@@ -1991,7 +2009,15 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
                       <span style={{ fontSize: 10, color: 'var(--text-dimmer)', flex: '0 0 auto' }}>{collapsed ? '▸' : '▾'}</span>
                       <span style={{ fontWeight: 700, color: 'var(--text-bright)', fontSize: 13, flex: '0 0 auto' }}>{base}</span>
                       <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, color: 'var(--text-dimmer)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{repo}</span>
-                      <Tag color="cyan" style={{ margin: 0, flex: '0 0 auto', fontSize: 11, lineHeight: '18px', height: 20 }}>{t('worktree.groupCount', { count: en.count })}</Tag>
+                      <Tag color="cyan" style={{ margin: 0, flex: '0 0 auto', fontSize: 11, lineHeight: '18px', height: 20 }}>{t('worktree.groupCount', { count: repoWt[repo]?.total ?? en.count })}</Tag>
+                      {(repoWt[repo]?.orphans ?? 0) > 0 && (
+                        <Tooltip title={t('worktree.groupOrphansTip')}>
+                          <Tag color="warning" style={{ margin: 0, flex: '0 0 auto', fontSize: 11, lineHeight: '18px', height: 20, cursor: 'pointer' }}
+                            onClick={(e) => { e.stopPropagation(); setWtDir(repo); setWtOpen(true) }}>
+                            {t('worktree.groupOrphans', { count: repoWt[repo].orphans })}
+                          </Tag>
+                        </Tooltip>
+                      )}
                       <span style={{ flex: 1 }} />
                       <a style={{ fontSize: 12.5, flex: '0 0 auto' }} onClick={(e) => { e.stopPropagation(); setWtDir(repo); setWtOpen(true) }}>{t('worktree.manage')}</a>
                     </div>
@@ -2022,21 +2048,22 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
                       <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 700, color: activeRow ? '#fff' : 'var(--text-bright)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.name}>{s.name}</span>
-                          {sw && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>{t('nav.swarm')}:{sw.swarm}{sw.role === 'leader' ? `·${t('swarm.master')}` : ''}</Tag>}
-                          {(() => { // worktree 归属 Tag：cwd 落在 linked worktree 时显示，点击直达管理抽屉
+                          {(() => { // worktree 归属：⎇ 分支紧跟会话名(设计 W2)；外部 worktree 加 ⧉ 标识；手机端只显图标
                             const ann = wtAnn[s.name]
                             if (!ann?.primary?.linked) return null
                             const tip = t('worktree.sessionTagTip', { path: ann.primary.worktree })
                               + (ann.ambiguous ? ' · ' + t('worktree.sessionTagAmbiguous', { count: ann.matches?.length || 0 }) : '')
-                            return (
+                            return (<>
                               <Tooltip title={tip}>
                                 <Tag color="cyan" style={{ margin: 0, flex: '0 0 auto', cursor: 'pointer', fontFamily: 'ui-monospace, monospace' }}
                                   onClick={(e) => { e.stopPropagation(); setWtDir(ann.primary.repo); setWtOpen(true) }}>
-                                  ⎇ {ann.primary.branch}{ann.ambiguous ? ' +' : ''}
+                                  {screens.md ? `⎇ ${ann.primary.branch}` : '⎇'}{ann.ambiguous ? ' +' : ''}
                                 </Tag>
                               </Tooltip>
-                            )
+                              {ann.primary.external && <Tag style={{ margin: 0, flex: '0 0 auto' }}>⧉ {screens.md ? t('worktree.external') : ''}</Tag>}
+                            </>)
                           })()}
+                          {sw && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>{t('nav.swarm')}:{sw.swarm}{sw.role === 'leader' ? `·${t('swarm.master')}` : ''}</Tag>}
                           {waiting && <Tag color="warning" style={{ margin: 0, flex: '0 0 auto' }}>{t('session.waiting')}</Tag>}
                           {cc[s.name] && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>✳ Claude</Tag>}
                           {cx[s.name] && <Tag color="green" style={{ margin: 0, flex: '0 0 auto' }}>✸ Codex</Tag>}

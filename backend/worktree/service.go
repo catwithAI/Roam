@@ -500,7 +500,8 @@ type AnnotationHit struct {
 	Repo     string `json:"repo"`     // 主仓库根
 	Worktree string `json:"worktree"` // worktree 根（linked 才有意义）
 	Branch   string `json:"branch"`
-	Linked   bool   `json:"linked"` // 是否 linked worktree（≠ 主 worktree）
+	Linked   bool   `json:"linked"`   // 是否 linked worktree（≠ 主 worktree）
+	External bool   `json:"external"` // 无 roam.* 身份（用户手建），UI 标 ⧉
 }
 
 type cwdInfo struct {
@@ -535,7 +536,12 @@ func resolveCwd(ctx context.Context, cwd string) *AnnotationHit {
 			// 主仓库根 = common dir 的宿主目录
 			repoRoot = filepath.Dir(canonical(commonDir))
 		}
-		hit = &AnnotationHit{Repo: repoRoot, Worktree: top, Branch: strings.TrimSpace(branch), Linked: linked}
+		external := false
+		if linked {
+			cb, cbErr := git(ctx, top, "config", "--worktree", "--get", "roam.createdby")
+			external = cbErr != nil || strings.TrimSpace(cb) != "roam"
+		}
+		hit = &AnnotationHit{Repo: repoRoot, Worktree: top, Branch: strings.TrimSpace(branch), Linked: linked, External: external}
 	}
 	cwdCacheMu.Lock()
 	cwdCache[cwd] = cwdInfo{at: time.Now(), hit: hit}
