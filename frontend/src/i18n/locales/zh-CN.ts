@@ -804,6 +804,15 @@ const zhCN = {
   'session.autoReviewNeedsAgent': '先在上方选择 Claude 或 Codex',
 
   // W1 新建会话 worktree 展开态
+  'session.wt.where': '在哪干活',
+  'session.wt.mainRepo': '主仓库',
+  'session.wt.newWt': '新建 worktree',
+  'session.wt.existingWt': '已有 ({count})',
+  'session.wt.hintRepo': '直接在仓库主工作区里干活',
+  'session.wt.hintNew': '为这个任务开一个隔离工作区：独立分支,和主仓库/其他任务互不干扰',
+  'session.wt.hintExisting': '进入一个已有的 worktree 继续干(孤儿会被复活)',
+  'session.wt.pickExisting': '选择要进入的 worktree',
+  'session.wt.dirtyShort': '{count} 改动',
   'session.wt.branch': '分支',
   'session.wt.base': '基于',
   'session.wt.basePlaceholder': '选择起点分支',

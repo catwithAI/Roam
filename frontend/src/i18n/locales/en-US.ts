@@ -804,6 +804,15 @@ const enUS = {
   'session.autoReviewNeedsAgent': 'Pick Claude or Codex above first',
 
   // W1 new-session worktree expansion
+  'session.wt.where': 'Workspace',
+  'session.wt.mainRepo': 'Main repo',
+  'session.wt.newWt': 'New worktree',
+  'session.wt.existingWt': 'Existing ({count})',
+  'session.wt.hintRepo': 'Work directly in the main repository worktree',
+  'session.wt.hintNew': 'Create an isolated worktree for this task: its own branch, no interference',
+  'session.wt.hintExisting': 'Enter an existing worktree to continue (orphans get revived)',
+  'session.wt.pickExisting': 'Pick a worktree to enter',
+  'session.wt.dirtyShort': '{count} changes',
   'session.wt.branch': 'Branch',
   'session.wt.base': 'Base',
   'session.wt.basePlaceholder': 'Pick a start branch',

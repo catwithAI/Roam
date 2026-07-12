@@ -1516,7 +1516,10 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
   const [dir, setDir] = useState('')
   const [pick, setPick] = useState(false)
   const [agent, setAgent] = useState<'none' | 'claude' | 'codex'>('none')
-  const [worktree, setWorktree] = useState(false)
+  // 工作区三选一（W1 交互修订）：主仓库 / 新建隔离 worktree / 进入已有 worktree
+  const [wtMode, setWtMode] = useState<'repo' | 'new' | 'existing'>('repo')
+  const [existingWts, setExistingWts] = useState<any[]>([])
+  const [wtPath, setWtPath] = useState('')
   const [autoReview, setAutoReview] = useState(false)
   const [isGitRepo, setIsGitRepo] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -1531,8 +1534,8 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
   const [prefs] = usePreferences()
   useEffect(() => {
     if (open) {
-      setName(''); setDir(''); setAgent('none'); setWorktree(false); setAutoReview(false); setIsGitRepo(false)
-      setBranch(''); setBranchTouched(false); setBase(''); setBranches([]); setDefBranch('')
+      setName(''); setDir(''); setAgent('none'); setWtMode('repo'); setAutoReview(false); setIsGitRepo(false)
+      setBranch(''); setBranchTouched(false); setBase(''); setBranches([]); setDefBranch(''); setExistingWts([]); setWtPath('')
     }
   }, [open])
   useEffect(() => {
@@ -1548,9 +1551,21 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
   useEffect(() => {
     if (!branchTouched) setBranch(name.trim() ? 'roam/' + worktreeNameSlug(name) : '')
   }, [name, branchTouched])
-  // 勾选 worktree 且目录是 git 仓库时拉本地分支做「基于」候选
+  // 目录是 git 仓库时拉已有 worktree（三选一的「已有」选项 + 计数）
   useEffect(() => {
-    if (!worktree || !isGitRepo || !dir.trim()) return
+    if (!isGitRepo || !dir.trim()) { setExistingWts([]); setWtPath(''); setWtMode('repo'); return }
+    let cancelled = false
+    api('GET', `/git/worktrees?dir=${encodeURIComponent(dir.trim())}`).then((r) => {
+      if (cancelled) return
+      const wts = (Array.isArray(r?.data) ? r.data : []).filter((w: any) => !w.isMain && !w.prunable)
+      setExistingWts(wts)
+      setWtPath((prev) => (prev && wts.some((w: any) => w.path === prev) ? prev : (wts[0]?.path || '')))
+    }).catch(() => { if (!cancelled) setExistingWts([]) })
+    return () => { cancelled = true }
+  }, [isGitRepo, dir])
+  // 选「新建 worktree」时拉本地分支做「基于」候选
+  useEffect(() => {
+    if (wtMode !== 'new' || !isGitRepo || !dir.trim()) return
     let cancelled = false
     api('GET', `/git/branches?dir=${encodeURIComponent(dir.trim())}`).then((r) => {
       if (cancelled) return
@@ -1560,14 +1575,14 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
       setBase((prev) => (prev && bs.includes(prev) ? prev : def))
     }).catch(() => {})
     return () => { cancelled = true }
-  }, [worktree, isGitRepo, dir])
+  }, [wtMode, isGitRepo, dir])
   const ok = async () => {
     if (!name.trim()) return message.error(t('session.nameRequired'))
     try {
       setCreating(true)
       let sessionDir = dir.trim()
       let actual: string
-      if (worktree && isGitRepo && sessionDir) {
+      if (wtMode === 'new' && isGitRepo && sessionDir) {
         // 组合 API 一次完成建 worktree + 会话；失败由后端反向补偿，前端不再两段式
         const res = await api('POST', '/worktree-sessions', {
           name: name.trim(), dir: sessionDir,
@@ -1577,6 +1592,8 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
         actual = res.name || res.data?.session || name.trim()
         sessionDir = res.data?.path || sessionDir
       } else {
+        // 主仓库直接用所选目录；「已有 worktree」= 会话 cwd 指进该 worktree
+        if (wtMode === 'existing' && wtPath) sessionDir = wtPath
         const res = await api('POST', '/sessions', { name: name.trim(), dir: sessionDir })
         actual = res.name || name.trim()
       }
@@ -1631,14 +1648,46 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
           </Radio.Group>
           {/* 会话选项:勾选项竖排,不适用时置灰(tooltip 说明启用条件) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <Tooltip placement="right" title={isGitRepo ? t('session.worktreeTip') : t('session.worktreeNeedsRepo')}>
-              <Checkbox checked={worktree && isGitRepo} disabled={!isGitRepo}
-                onChange={(e) => setWorktree(e.target.checked)} style={{ width: 'fit-content' }}>
-                <span style={{ fontSize: 13 }}>{t('session.worktreeMode')}</span>
-              </Checkbox>
-            </Tooltip>
-            {/* worktree 展开态（W1）：分支 / 基于 / 路径预览 */}
-            {worktree && isGitRepo && (
+            {/* 工作区三选一（W1 交互修订）：主仓库 / 新建 worktree / 已有 worktree */}
+            {isGitRepo && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--text-dim)', fontSize: 13, flex: '0 0 auto' }}>{t('session.wt.where')}</span>
+                  <Segmented size="small" value={wtMode} onChange={(v) => setWtMode(v as any)} options={[
+                    { label: t('session.wt.mainRepo'), value: 'repo' },
+                    { label: t('session.wt.newWt'), value: 'new' },
+                    { label: t('session.wt.existingWt', { count: existingWts.length }), value: 'existing', disabled: !existingWts.length },
+                  ]} />
+                </div>
+                <div style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>
+                  {wtMode === 'repo' ? t('session.wt.hintRepo') : wtMode === 'new' ? t('session.wt.hintNew') : t('session.wt.hintExisting')}
+                </div>
+                {wtMode === 'existing' && (
+                  <Select value={wtPath || undefined} onChange={(v) => setWtPath(v)} placeholder={t('session.wt.pickExisting')}
+                    style={{ width: '100%' }} optionLabelProp="title"
+                    options={existingWts.map((w: any) => {
+                      const occupied = (w.sessions || []).length > 0
+                      return {
+                        value: w.path,
+                        title: `⎇ ${w.branch || w.path.split('/').pop()}`,
+                        label: (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                            <span style={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis' }}>⎇ {w.branch || '?'}</span>
+                            {occupied
+                              ? <Tag color="green" style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>{w.sessions[0].session}</Tag>
+                              : w.external
+                                ? <Tag style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>⧉ {t('worktree.external')}</Tag>
+                                : <Tag color="warning" style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>{t('worktree.orphan')}</Tag>}
+                            {(w.dirty > 0 || w.untracked > 0) && <span style={{ color: 'var(--text-dimmer)', fontSize: 11 }}>{t('session.wt.dirtyShort', { count: w.dirty + w.untracked })}</span>}
+                          </span>
+                        ),
+                      }
+                    })} />
+                )}
+              </div>
+            )}
+            {/* 新建 worktree 展开态（W1）：分支 / 基于 / 路径预览 */}
+            {wtMode === 'new' && isGitRepo && (
               <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ flex: '0 0 52px', color: 'var(--text-dim)', fontSize: 13 }}>⎇ {t('session.wt.branch')}</span>

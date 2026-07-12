@@ -146,19 +146,20 @@ ttmux 的能力止步于「平坦 tmux session + parent 关系」，**不理解 
    └─关闭 worktree 会话──→ 收尾三选一(W7)
 ```
 
-### W1. 新建会话弹窗（worktree 展开态）
+### W1. 新建会话弹窗（工作区三选一）
 
-勾选「worktree 模式」后就地展开；不勾选与现状完全一致。
+> 交互修订（实现期）：原「worktree 模式」复选框把一等选择藏成术语开关，且无法进入已有
+> worktree。改为目录是 git 仓库时出现**「在哪干活」三选一**，心智模型对齐用户真实问题。
 
 ```
 ┌─ 新建会话 ──────────────────────────────┐
 │ 名称  [ fix-login                  ]    │
 │ 目录  [ ~/codes/app         ][浏览]     │
 │ ( 无 )( ●Claude )( Codex )              │
-│ ☑ worktree 模式                         │
+│ 在哪干活  (主仓库)(●新建 worktree)(已有(2))│ ← Segmented，仅 git 仓库时出现
+│ 「为这个任务开一个隔离工作区…」          │ ← 各态一句白话说明
 │ ┌─────────────────────────────────────┐ │
 │ │ ⎇ 分支 [ roam/fix-login         ]   │ │ ← 默认 roam/<会话名 slug>
-│ │        已存在，创建时自动改名        │ │
 │ │ 基于   [ main (默认)          ▾ ]   │ │ ← start-from 选择器
 │ │ 将创建 .worktrees/roam-fix-login     │ │ ← 路径预览，灰字
 │ └─────────────────────────────────────┘ │
@@ -166,6 +167,11 @@ ttmux 的能力止步于「平坦 tmux session + parent 关系」，**不理解 
 │                    [取消]  [创建]        │
 └──────────────────────────────────────────┘
 ```
+
+- **主仓库**（默认）：行为与普通建会话完全一致，零打扰。
+- **新建 worktree**：展开分支卡（同上）；提交 = 一次 `POST /worktree-sessions`。
+- **已有 (N)**：下拉列出仓库现有 worktree（`⎇ 分支` + 孤儿/外部/占用会话徽章 + 改动数），
+  选中即把会话 cwd 指进去——孤儿由此复活；无可选项时该档置灰。
 
 - **提交 = 一次 `POST /worktree-sessions`**（组合 API，§4）：Worktree Service 建 worktree → 调 `ttmux new --dir` → 一次返回 `{session, worktree, branch, base}`；最终分支名/路径由 service 在锁内分配，前端查重提示只是预览。
 - start-from 选远端时 UI 明确拆 `remote` + `ref` 两个值；fetch 中可取消。
