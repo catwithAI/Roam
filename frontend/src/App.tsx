@@ -1769,6 +1769,9 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
   const [swarmMap, setSwarmMap] = useState<Record<string, { swarm: string; role: string }>>({})
   const [newOpen, setNewOpen] = useState(false)
   const [wtOpen, setWtOpen] = useState(false)
+  const [wtDir, setWtDir] = useState<string | undefined>(undefined)
+  // session→worktree 归属注解（cwd 现算的弱关联）：会话行 ⎇ Tag 的数据源
+  const [wtAnn, setWtAnn] = useState<Record<string, any>>({})
   // W7 关闭流程：confirmKill = 普通 Popconfirm 受控打开；closing = worktree 收尾三选一弹窗
   const [confirmKill, setConfirmKill] = useState<string | null>(null)
   const [closing, setClosing] = useState<{ name: string; st: any } | null>(null)
@@ -1776,6 +1779,14 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
   const { t } = useI18n()
   const load = () => api('GET', '/sessions').then(setList).catch(() => {})
   useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t) }, [])
+  useEffect(() => {
+    let stop = false
+    const loadAnn = () => api('GET', '/sessions/annotations')
+      .then((r) => { if (!stop) setWtAnn(r?.data || {}) }).catch(() => {})
+    loadAnn()
+    const t = setInterval(loadAnn, 8000)
+    return () => { stop = true; clearInterval(t) }
+  }, [])
   // 拉取蜂群拓扑：哪些会话其实是蜂群的指挥/成员。会话页和蜂群页看到的是同一批 tmux 会话，
   // 这里据成员的真实 session 名(非前缀猜测)打标，并据此拦住「关闭」误把成员当完成解锁下游。
   useEffect(() => {
@@ -1903,7 +1914,7 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
     <Card
       title={<Space size={8}>{t('nav.sessions')}<Tag style={{ margin: 0 }}>{cnt('all')}</Tag></Space>}
       extra={<Space size={8}>
-        <Button onClick={() => setWtOpen(true)}>{t('worktree.entry')}</Button>
+        <Button onClick={() => { setWtDir(undefined); setWtOpen(true) }}>{t('worktree.entry')}</Button>
         <Button type="primary" onClick={() => setNewOpen(true)}>+ {t('session.new')}</Button>
       </Space>}
     >
@@ -1962,6 +1973,20 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 700, color: activeRow ? '#fff' : 'var(--text-bright)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.name}>{s.name}</span>
                           {sw && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>{t('nav.swarm')}:{sw.swarm}{sw.role === 'leader' ? `·${t('swarm.master')}` : ''}</Tag>}
+                          {(() => { // worktree 归属 Tag：cwd 落在 linked worktree 时显示，点击直达管理抽屉
+                            const ann = wtAnn[s.name]
+                            if (!ann?.primary?.linked) return null
+                            const tip = t('worktree.sessionTagTip', { path: ann.primary.worktree })
+                              + (ann.ambiguous ? ' · ' + t('worktree.sessionTagAmbiguous', { count: ann.matches?.length || 0 }) : '')
+                            return (
+                              <Tooltip title={tip}>
+                                <Tag color="cyan" style={{ margin: 0, flex: '0 0 auto', cursor: 'pointer', fontFamily: 'ui-monospace, monospace' }}
+                                  onClick={(e) => { e.stopPropagation(); setWtDir(ann.primary.repo); setWtOpen(true) }}>
+                                  ⎇ {ann.primary.branch}{ann.ambiguous ? ' +' : ''}
+                                </Tag>
+                              </Tooltip>
+                            )
+                          })()}
                           {waiting && <Tag color="warning" style={{ margin: 0, flex: '0 0 auto' }}>{t('session.waiting')}</Tag>}
                           {cc[s.name] && <Tag color="blue" style={{ margin: 0, flex: '0 0 auto' }}>✳ Claude</Tag>}
                           {cx[s.name] && <Tag color="green" style={{ margin: 0, flex: '0 0 auto' }}>✸ Codex</Tag>}
@@ -2003,7 +2028,7 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
       <NewSessionModal open={newOpen} onClose={() => setNewOpen(false)} onDone={(name) => { load(); openTerm(name) }} />
       <CloseWorktreeModal info={closing} onClose={() => setClosing(null)} onDone={(name) => { closeTerm(name); load() }} />
       <Suspense fallback={null}>
-        <WorktreePanel open={wtOpen} onClose={() => setWtOpen(false)} openTerm={openTerm} />
+        <WorktreePanel open={wtOpen} onClose={() => { setWtOpen(false); setWtDir(undefined) }} openTerm={openTerm} initialDir={wtDir} />
       </Suspense>
     </Card>
   )

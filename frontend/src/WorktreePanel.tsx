@@ -26,10 +26,11 @@ function relTime(sec: number | undefined, t: (k: string, v?: Record<string, stri
   return t('time.daysAgo', { count: Math.floor(diff / 86400) })
 }
 
-export default function WorktreePanel({ open, onClose, openTerm }: {
+export default function WorktreePanel({ open, onClose, openTerm, initialDir }: {
   open: boolean
   onClose: () => void
   openTerm: (name: string) => void
+  initialDir?: string
 }) {
   const { message, modal } = AntApp.useApp()
   const { t } = useI18n()
@@ -39,10 +40,12 @@ export default function WorktreePanel({ open, onClose, openTerm }: {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<Record<string, boolean>>({})
 
-  // 打开时默认选最近用过的目录
+  // 打开时优先用调用方指定目录（会话 Tag 直达），否则默认最近用过的
   useEffect(() => {
-    if (open && !dir) { const r = recentDirs(); if (r.length) setDir(r[0]) }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!open) return
+    if (initialDir) setDir(initialDir)
+    else if (!dir) { const r = recentDirs(); if (r.length) setDir(r[0]) }
+  }, [open, initialDir]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(async (d: string, silent = false) => {
     if (!d.trim()) { setList(null); return }
@@ -168,6 +171,10 @@ export default function WorktreePanel({ open, onClose, openTerm }: {
           filterOption={(input, opt) => String(opt?.value).toLowerCase().includes(input.toLowerCase())}
           placeholder={t('worktree.dirPlaceholder')} />
         <Button onClick={() => load(dir)} loading={loading} style={{ flex: '0 0 auto' }}>{t('common.refresh')}</Button>
+      </div>
+      {/* 关系说明：session↔worktree 是按 cwd 现算的弱关联，讲清楚规则避免误解 */}
+      <div style={{ fontSize: 12, color: 'var(--text-dimmer)', lineHeight: 1.6, margin: '-4px 0 12px' }}>
+        {t('worktree.relationHint')}
       </div>
 
       {!dir.trim() ? (

@@ -812,6 +812,9 @@ const enUS = {
 
   // W4 worktree management drawer
   'worktree.entry': 'Worktree',
+  'worktree.sessionTagTip': 'Worktree {path} · click to manage',
+  'worktree.sessionTagAmbiguous': 'panes span {count} worktrees',
+  'worktree.relationHint': 'Sessions attach to a worktree via their cwd; cd away and the link dissolves. A worktree may also have no session (orphan) or be shared by several',
   'worktree.title': 'Worktrees',
   'worktree.dirPlaceholder': 'git repository directory',
   'worktree.pickDir': 'Pick a git repository directory first',
