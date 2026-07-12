@@ -1562,16 +1562,14 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
     }).catch(() => { if (!cancelled) setIsGitRepo(false) })
     return () => { cancelled = true }
   }, [dir])
-  // prompt → 会话名派生（手改后停跟）；slug 为空(纯中文等)时兜底 task-<HHMM>
-  useEffect(() => {
-    if (!nameTouched) setName(taskNameFromPrompt(prompt))
-  }, [prompt, nameTouched])
-  // 分支名跟随会话名自动填 roam/<slug>，用户手改后停止联动
+  // 分支名跟随「名称(或需求短派生)」自动填 roam/<slug>，手改后停止联动。
+  // 名称不再被需求长串回填——短名是一等输入,留空才在提交时兜底派生(≤16 字)。
   useEffect(() => {
     if (branchTouched) return
-    const slug = worktreeNameSlug(name)
-    setBranch(name.trim() ? 'roam/' + (slug || 'task') : '')
-  }, [name, branchTouched])
+    const src = name.trim() || taskNameFromPrompt(prompt).slice(0, 16)
+    const slug = worktreeNameSlug(src)
+    setBranch(src ? 'roam/' + (slug || 'task') : '')
+  }, [name, prompt, branchTouched])
   // 目录是 git 仓库时拉已有 worktree（三选一的「已有」选项 + 计数）
   useEffect(() => {
     if (!isGitRepo || !dir.trim()) { setExistingWts([]); setWtPath(''); setWtMode('repo'); return }
@@ -1602,6 +1600,9 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
     let finalName = name.trim()
     if (!finalName) {
       if (!prompt.trim()) return message.error(t('session.promptOrNameRequired'))
+      finalName = taskNameFromPrompt(prompt).slice(0, 16).replace(/[-，。,.\s]+$/g, '')
+    }
+    if (!finalName) {
       const d = new Date()
       finalName = 'task-' + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') + '-' + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0')
     }
@@ -1654,9 +1655,11 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
       <Modal open={open} onCancel={onClose} onOk={ok} okText={t('file.create')} title={t('session.new')} destroyOnClose
         confirmLoading={creating}>
         <Space direction="vertical" style={{ width: '100%' }}>
-          {/* prompt-first：主输入是「要干什么」，名字/分支全部派生（高级里可改） */}
+          {/* 名称是一等短输入(可留空自动命名)；需求是任务本体,发给 Agent/派生分支 */}
+          <Input placeholder={t('session.namePlaceholder2')} value={name} autoFocus
+            onChange={(e) => { setName(e.target.value); setNameTouched(true) }} />
           <Input.TextArea placeholder={t('session.promptPlaceholder')} value={prompt}
-            onChange={(e) => setPrompt(e.target.value)} autoFocus
+            onChange={(e) => setPrompt(e.target.value)}
             autoSize={{ minRows: 3, maxRows: 8 }} />
           <Space.Compact style={{ width: '100%' }}>
             <AutoComplete style={{ flex: 1 }} value={dir} onChange={setDir}
@@ -1745,27 +1748,20 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
                 </div>
               </div>
             )}
-            {/* 高级折叠：会话名 / 分支名（默认全派生，手改停跟） */}
-            <Collapse ghost size="small" items={[{
-              key: 'adv',
-              label: <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>{t('session.advanced')}</span>,
-              children: (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* 高级折叠：仅分支名(新建 worktree 时);名称已是一等输入 */}
+            {wtMode === 'new' && isGitRepo && (
+              <Collapse ghost size="small" items={[{
+                key: 'adv',
+                label: <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>{t('session.advanced')}</span>,
+                children: (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ flex: '0 0 64px', color: 'var(--text-dim)', fontSize: 13 }}>{t('session.nameLabel')}</span>
-                    <Input size="small" value={name} placeholder={t('session.namePlaceholder')} style={{ flex: 1 }}
-                      onChange={(e) => { setName(e.target.value); setNameTouched(true) }} />
+                    <span style={{ flex: '0 0 64px', color: 'var(--text-dim)', fontSize: 13 }}>⎇ {t('session.wt.branch')}</span>
+                    <Input size="small" value={branch} style={{ flex: 1, fontFamily: 'monospace' }}
+                      onChange={(e) => { setBranch(e.target.value); setBranchTouched(true) }} />
                   </div>
-                  {wtMode === 'new' && isGitRepo && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ flex: '0 0 64px', color: 'var(--text-dim)', fontSize: 13 }}>⎇ {t('session.wt.branch')}</span>
-                      <Input size="small" value={branch} style={{ flex: 1, fontFamily: 'monospace' }}
-                        onChange={(e) => { setBranch(e.target.value); setBranchTouched(true) }} />
-                    </div>
-                  )}
-                </div>
-              ),
-            }]} />
+                ),
+              }]} />
+            )}
             <Tooltip placement="right" title={agent !== 'none' ? t('session.autoReviewTip') : t('session.autoReviewNeedsAgent')}>
               <Checkbox checked={autoReview && agent !== 'none'} disabled={agent === 'none'}
                 onChange={(e) => setAutoReview(e.target.checked)} style={{ width: 'fit-content' }}>
