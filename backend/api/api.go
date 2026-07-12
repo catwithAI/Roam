@@ -13,18 +13,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"ttmux-web/ttmux"
+	"ttmux-web/worktree"
 )
 
 type API struct {
 	TT          *ttmux.Client
-	BrowserHome string // 浏览器导航起始页地址（供前端设为默认主页）
+	WT          *worktree.Service // Worktree 领域服务（独占 git worktree 操作）
+	BrowserHome string            // 浏览器导航起始页地址（供前端设为默认主页）
 	Football    *FootballStore
 	Speech      *SpeechStore      // 语音识别(ASR)配置 + 转录
 	Prefs       *PreferencesStore // 用户偏好（主题/语言/Agent 命令等）
 }
 
 func New(tt *ttmux.Client, browserHome, dataDir string) *API {
-	return &API{TT: tt, BrowserHome: browserHome, Football: NewFootballStore(), Speech: NewSpeechStore(dataDir), Prefs: NewPreferencesStore(dataDir)}
+	return &API{TT: tt, WT: worktree.New(), BrowserHome: browserHome, Football: NewFootballStore(), Speech: NewSpeechStore(dataDir), Prefs: NewPreferencesStore(dataDir)}
 }
 
 // json 透传 ttmux 的 --json 输出
@@ -141,8 +143,14 @@ func (a *API) RenameSession(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"name": newName}})
 }
 
-// 用 tmux kill-session（转发），避开 ttmux kill 的交互式 y/N 确认（后端无 tty）
-func (a *API) KillSession(c *gin.Context) { a.text(c, "kill-session", "-t", sessionParam(c)) }
+// 走 ttmux kill --yes（非交互）：孤儿收养/meta 清理在 CLI 内完成；?cascade=1 级联杀子树。
+func (a *API) KillSession(c *gin.Context) {
+	args := []string{"kill", sessionParam(c), "--yes"}
+	if c.Query("cascade") == "1" {
+		args = append(args, "--cascade")
+	}
+	a.text(c, args...)
+}
 func (a *API) Capture(c *gin.Context) {
 	a.text(c, "capture", sessionParam(c), "--lines", c.DefaultQuery("lines", "200"))
 }

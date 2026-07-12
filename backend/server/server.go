@@ -125,16 +125,29 @@ func New(cfg Config) *gin.Engine {
 		g.POST("/file/mkdir", h.FileMkdir) // 文件侧栏：在当前目录新建子目录
 		g.POST("/upload", h.Upload)        // 上传文件到指定目录（拖拽到对话框 / 文件侧栏）
 
-		g.GET("/git/status", h.GitStatus)                   // Git 面板：当前工作目录所属仓库状态
-		g.GET("/git/diff", h.GitDiff)                       // Git 面板：单文件差异
-		g.POST("/git/stage", h.GitStage)                    // 暂存
-		g.POST("/git/unstage", h.GitUnstage)                // 取消暂存
-		g.POST("/git/discard", h.GitDiscard)                // 放弃改动
-		g.POST("/git/commit", h.GitCommit)                  // 提交（可选 push）
-		g.POST("/git/op", h.GitOp)                          // push / pull / fetch / sync
-		g.POST("/git/worktree", h.GitWorktreeAdd)           // 新建 worktree
-		g.POST("/git/worktree/remove", h.GitWorktreeRemove) // 移除 worktree
-		g.GET("/git/is-repo", h.GitIsRepo)                  // 检查是否 git 仓库
+		g.GET("/git/status", h.GitStatus)    // Git 面板：当前工作目录所属仓库状态
+		g.GET("/git/diff", h.GitDiff)        // Git 面板：单文件差异
+		g.POST("/git/stage", h.GitStage)     // 暂存
+		g.POST("/git/unstage", h.GitUnstage) // 取消暂存
+		g.POST("/git/discard", h.GitDiscard) // 放弃改动
+		g.POST("/git/commit", h.GitCommit)   // 提交（可选 push）
+		g.POST("/git/op", h.GitOp)           // push / pull / fetch / sync
+		g.GET("/git/is-repo", h.GitIsRepo)   // 检查是否 git 仓库
+		// ── Worktree API（worktree.Service 独占 git 操作，设计 07 §4）──
+		g.POST("/git/worktree", h.WorktreeCreate)        // 新建（锁内命名 + roam.* 身份）
+		g.GET("/git/worktrees", h.WorktreeList)          // 清单 + 状态 + 会话 join（无写副作用）
+		g.GET("/git/worktree/diff", h.WorktreeDiff)      // 对比 base（committed 与 workingTree 分开）
+		g.POST("/git/worktree/merge", h.WorktreeMerge)   // 合并回 base（执行位/冲突 abort/expected-head）
+		g.POST("/git/worktree/remove", h.WorktreeRemove) // 删除（占用检查 + 脏保护）
+		g.POST("/git/worktree/prune", h.WorktreePrune)   // 显式清理残留
+		g.GET("/git/branches", h.GitBranches)            // 本地分支列表（W1 start-from）
+		// ── Session API 增量 ──
+		g.GET("/sessions/annotations", h.SessionAnnotations)              // session→worktree 归属（cwd join）
+		g.GET("/sessions/:name/worktree-status", h.SessionWorktreeStatus) // W7 关闭前预检
+		// ── 组合 WorktreeSession API（事务编排）──
+		g.POST("/worktree-sessions", h.WorktreeSessionCreate)                     // 建 worktree + 会话
+		g.POST("/sessions/:name/fork-worktree", h.SessionForkWorktree)            // 派生子会话进新 worktree
+		g.POST("/sessions/:name/close-with-worktree", h.SessionCloseWithWorktree) // W7 三选一
 
 		g.GET("/sessions", h.Sessions)
 		g.POST("/sessions", h.NewSession)
