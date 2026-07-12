@@ -134,7 +134,6 @@ ttmux 的能力止步于「平坦 tmux session + parent 关系」，**不理解 
 
 > **高保真 HTML mockup：[07-worktree/index.html](./07-worktree/)**（W3/W6/W7 带轻交互）。
 > 成套总览：[overall-desktop.html](./07-worktree/overall-desktop.html)｜[overall-mobile.html](./07-worktree/overall-mobile.html)。
-> **v2 视觉升级版：[07-worktree/v2/](./07-worktree/v2/index.html)**——「VSCode 式纯黑」设计语言，v1 定交互规格、v2 定视觉方向，实现时合流。
 > 现有布局基线：电脑 = 导航 `Sider` | 页面 | 右侧停靠终端三栏；手机 = 底部 Tab + 全屏页；Git 面板是终端视图里的浮动抽屉。
 
 七个界面与入口关系：
@@ -146,7 +145,11 @@ ttmux 的能力止步于「平坦 tmux session + parent 关系」，**不理解 
    └─关闭 worktree 会话──→ 收尾三选一(W7)
 ```
 
-### W1. 新建会话弹窗（prompt-first 派活 + 工作区三选一）
+### W1. 新建会话弹窗（名称 + 需求 + 工作区三选一）
+
+> 交互修订 3（实现期）：需求派生的长句不适合当会话名——**名称回归一等短输入**（可留空，
+> 提交时从需求短派生 ≤16 字，再兜底 task-<时间>），需求 textarea 其次（发 Agent 第一条
+> 指令 + 派生分支名，不再实时回填名称）；「高级」折叠只剩分支名。
 
 > 交互修订 2（实现期）：**主输入是自然语言任务**，不是名字/分支。对照 Orca：它是任务名
 > 优先（留空则随机海洋生物名，分支从名字派生，显式分支藏 Advanced）、prompt 要用户建完

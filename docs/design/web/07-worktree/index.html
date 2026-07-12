@@ -39,7 +39,7 @@
 <div class="wrap">
   <h1><span class="brand">Roam</span> · Worktree 管理 — 页面设计</h1>
   <div class="sub">
-    设计文档 <a href="../07-worktree.md">07-worktree.md</a> 的高保真 HTML mockup（v0.3）。
+    设计文档 <a href="../07-worktree.md">07-worktree.md</a> 的高保真 HTML mockup（随实现同步更新）。实现采用本套交互规格 + 应用现有主题。
     样式取自前端真实设计 token（GitHub-dark palette · Antd 组件语言）。
     页面间可用页头链接串行浏览；W3 / W6 / W7 带轻交互（切 tab、选选手、选单选项）。
   </div>
@@ -48,12 +48,6 @@
    │  └─仓库分组头[管理]──→ Worktree 管理抽屉(<b>W4</b>) ←──Git面板(<b>W3</b>)「···」/徽标
    │  └─竞赛组头[对比台]──→ 竞赛对比台(<b>W6</b>) ←──竞赛创建(<b>W5</b>)生成的组
    └─关闭 worktree 会话──→ 收尾三选一(<b>W7</b>)</div>
-
-  <a class="pcard stagger" data-n="v2" href="v2/index.html" style="display:block;margin-bottom:16px;border-color:rgba(57,197,207,.5);background:linear-gradient(120deg,rgba(57,197,207,.08),rgba(31,111,235,.05))">
-    <div class="t">v2 视觉升级版 — 「VSCode 式纯黑」设计语言</div>
-    <div class="d">全新设计方向：中性纯黑分层、扁平小圆角、树形缩进导线画分支拓扑、VSCode git 语义色、黑色哑光进度条（白色游标）、全程无 emoji。含主工作台 / Hub / Race / 对话框 / 手机版 5 组页面 + 设计 token 总览。<b style="color:var(--text-bright)">推荐先看这个。</b></div>
-    <div class="m"><span class="tag cyan">design v2</span><span class="tag blue">VSCode black · 系统 UI × JetBrains Mono</span></div>
-  </a>
 
   <div class="grid" style="margin-bottom:16px;grid-template-columns:1fr 1fr">
     <a class="pcard stagger" data-n="全" href="overall-desktop.html" style="border-color:rgba(88,166,255,.35)">
@@ -71,7 +65,7 @@
   <div class="grid">
     <a class="pcard stagger" style="animation-delay:.02s" data-n="W1" href="w1-new-session.html">
       <div class="t">W1 · 新建会话弹窗</div>
-      <div class="d">worktree 展开态：分支卡（自动命名 + 冲突提示）、start-from 选择器、磁盘路径预览。</div>
+      <div class="d">名称一等短输入(可留空自动起名) + 需求 textarea(发 Agent/派生分支) + 「在哪干活」三选一(主仓库/新建/已有) + 高级折叠分支名。</div>
       <div class="m"><span class="tag ghost">Modal</span><span class="tag cyan">⎇ 分支卡</span><span class="tag ghost">M1</span></div>
     </a>
     <a class="pcard stagger" style="animation-delay:.06s" data-n="W2" href="w2-session-list.html">
@@ -86,7 +80,7 @@
     </a>
     <a class="pcard stagger" style="animation-delay:.14s" data-n="W4" href="w4-worktree-drawer.html">
       <div class="t">W4 · Worktree 管理抽屉</div>
-      <div class="d">核心新页面：关联徽章四态、有货着色、合并/删除全流程、脏删除保护、空态。桌面 + 手机。</div>
+      <div class="d">核心新页面：关联徽章四态、有货着色、合并/删除全流程、脏删除保护、＋新建 worktree、关系说明、空态。</div>
       <div class="m"><span class="tag ghost">Drawer 480</span><span class="tag yellow">脏保护</span><span class="tag ghost">M1</span></div>
     </a>
     <a class="pcard stagger" style="animation-delay:.18s" data-n="W5" href="w5-race-create.html">

@@ -112,7 +112,7 @@
 
 <div class="spec-note" style="border-top:1px solid var(--border-subtle)">
   组件：<span class="mono">Segmented</span>（badge 数 = 差异文件数）；「对比 main」列表数据来自新接口 <span class="mono">GET /git/diff-base</span>，
-  点文件行复用现有 DiffView。底部 <span class="mono">Dropdown.Button</span>：merge / squash / rebase。
+  点文件行复用现有 DiffView。底部 <span class="mono">Dropdown.Button</span>：squash 默认 / merge / rebase；合并成功后 worktree <em>保留</em>(当前会话仍在其中,删除会被占用检查拦),引导去管理页处理。
   worktree 徽标与「Worktree 管理」都通向 W4 抽屉。手机端同构（Git 面板本就全屏抽屉）。
 </div>
 <script>
