@@ -805,7 +805,7 @@ const zhCN = {
   'session.promptPlaceholder': '需求 / 任务:用自然语言描述要干什么,将作为第一条指令发给 Agent…',
   'session.promptOrNameRequired': '写点要干什么,或给个会话名',
   'session.nameLabel': '会话名',
-  'session.wt.namingHint': '开工前先给当前分支起个语义化名字:git branch -m roam/<简短英文kebab-case>,然后开始下面的任务。',
+  'session.wt.namingHint': '开工前先给当前分支起个语义化名字(git branch -m <简短英文kebab-case>,前缀 feat/fix 等由你定),然后开始下面的任务。',
   'session.namePlaceholder2': '会话名(短,留空则从需求自动起名)',
   'session.wt.where': '在哪干活',
   'session.wt.mainRepo': '主仓库',

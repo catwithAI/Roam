@@ -1642,9 +1642,7 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
           {/* 名称是一等短输入(可留空自动命名)；需求是任务本体,发给 Agent/派生分支 */}
           <Input placeholder={t('session.namePlaceholder2')} value={name} autoFocus
             onChange={(e) => { setName(e.target.value); setNameTouched(true) }} />
-          <Input.TextArea placeholder={t('session.promptPlaceholder')} value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            autoSize={{ minRows: 3, maxRows: 8 }} />
+          {/* 顺序（交互修订 5）：先定位置——名字 → 目录 → 在哪干活；再定执行——Agent → 需求 */}
           <Space.Compact style={{ width: '100%' }}>
             <AutoComplete style={{ flex: 1 }} value={dir} onChange={setDir}
               options={recentDirs().map((d) => ({ value: d }))}
@@ -1664,56 +1662,45 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
               ))}
             </div>
           )}
-          <Radio.Group value={agent} onChange={(e) => setAgent(e.target.value)} optionType="button" buttonStyle="solid"
-            style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            <Radio.Button value="none">{t('session.agentNone')}</Radio.Button>
-            <Radio.Button value="claude">{t('session.agentClaude')}</Radio.Button>
-            <Radio.Button value="codex">{t('session.agentCodex')}</Radio.Button>
-          </Radio.Group>
-          {/* 会话选项:勾选项竖排,不适用时置灰(tooltip 说明启用条件) */}
+          {/* 工作区三选一（W1 交互修订）：常驻不隐藏(cc96123 教训)——非 git 目录整组置灰+tooltip */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {/* 工作区三选一（W1 交互修订）：常驻不隐藏(cc96123 教训)——非 git 目录整组置灰+tooltip */}
-            {(
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ color: 'var(--text-dim)', fontSize: 13, flex: '0 0 auto' }}>{t('session.wt.where')}</span>
-                  <Tooltip title={isGitRepo ? '' : t('session.worktreeNeedsRepo')}>
-                    <Segmented size="small" value={isGitRepo ? wtMode : 'repo'} onChange={(v) => setWtMode(v as any)} options={[
-                      { label: t('session.wt.mainRepo'), value: 'repo' },
-                      { label: t('session.wt.newWt'), value: 'new', disabled: !isGitRepo },
-                      { label: t('session.wt.existingWt', { count: existingWts.length }), value: 'existing', disabled: !isGitRepo || !existingWts.length },
-                    ]} />
-                  </Tooltip>
-                </div>
-                <div style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>
-                  {!isGitRepo ? t('session.worktreeNeedsRepo') : wtMode === 'repo' ? t('session.wt.hintRepo') : wtMode === 'new' ? t('session.wt.hintNew') : t('session.wt.hintExisting')}
-                </div>
-                {wtMode === 'existing' && (
-                  <Select value={wtPath || undefined} onChange={(v) => setWtPath(v)} placeholder={t('session.wt.pickExisting')}
-                    style={{ width: '100%' }} optionLabelProp="title"
-                    options={existingWts.map((w: any) => {
-                      const occupied = (w.sessions || []).length > 0
-                      return {
-                        value: w.path,
-                        title: `⎇ ${w.branch || w.path.split('/').pop()}`,
-                        label: (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                            <span style={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis' }}>⎇ {w.branch || '?'}</span>
-                            {occupied
-                              ? <Tag color="green" style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>{w.sessions[0].session}</Tag>
-                              : w.external
-                                ? <Tag style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>⧉ {t('worktree.external')}</Tag>
-                                : <Tag color="warning" style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>{t('worktree.orphan')}</Tag>}
-                            {(w.dirty > 0 || w.untracked > 0) && <span style={{ color: 'var(--text-dimmer)', fontSize: 11 }}>{t('session.wt.dirtyShort', { count: w.dirty + w.untracked })}</span>}
-                          </span>
-                        ),
-                      }
-                    })} />
-                )}
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ color: 'var(--text-dim)', fontSize: 13, flex: '0 0 auto' }}>{t('session.wt.where')}</span>
+              <Tooltip title={isGitRepo ? '' : t('session.worktreeNeedsRepo')}>
+                <Segmented size="small" value={isGitRepo ? wtMode : 'repo'} onChange={(v) => setWtMode(v as any)} options={[
+                  { label: t('session.wt.mainRepo'), value: 'repo' },
+                  { label: t('session.wt.newWt'), value: 'new', disabled: !isGitRepo },
+                  { label: t('session.wt.existingWt', { count: existingWts.length }), value: 'existing', disabled: !isGitRepo || !existingWts.length },
+                ]} />
+              </Tooltip>
+            </div>
+            <div style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>
+              {!isGitRepo ? t('session.worktreeNeedsRepo') : wtMode === 'repo' ? t('session.wt.hintRepo') : wtMode === 'new' ? t('session.wt.hintNew') : t('session.wt.hintExisting')}
+            </div>
+            {wtMode === 'existing' && (
+              <Select value={wtPath || undefined} onChange={(v) => setWtPath(v)} placeholder={t('session.wt.pickExisting')}
+                style={{ width: '100%' }} optionLabelProp="title"
+                options={existingWts.map((w: any) => {
+                  const occupied = (w.sessions || []).length > 0
+                  return {
+                    value: w.path,
+                    title: `⎇ ${w.branch || w.path.split('/').pop()}`,
+                    label: (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis' }}>⎇ {w.branch || '?'}</span>
+                        {occupied
+                          ? <Tag color="green" style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>{w.sessions[0].session}</Tag>
+                          : w.external
+                            ? <Tag style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>⧉ {t('worktree.external')}</Tag>
+                            : <Tag color="warning" style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>{t('worktree.orphan')}</Tag>}
+                        {(w.dirty > 0 || w.untracked > 0) && <span style={{ color: 'var(--text-dimmer)', fontSize: 11 }}>{t('session.wt.dirtyShort', { count: w.dirty + w.untracked })}</span>}
+                      </span>
+                    ),
+                  }
+                })} />
             )}
-            {/* 新建 worktree 展开态（W1 交互修订 4）：只选「基于」。分支不提前指定——
-                先建会话再建 worktree，占位分支按会话名派生，Agent 开工后按任务命名 */}
+            {/* 新建 worktree 展开态（W1 交互修订 4）：只选「基于」（缺省本地主干）。
+                分支不提前指定——占位按会话名派生，Agent 开工后按任务命名 */}
             {wtMode === 'new' && isGitRepo && (
               <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1731,13 +1718,22 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
                 </div>
               </div>
             )}
-            <Tooltip placement="right" title={agent !== 'none' ? t('session.autoReviewTip') : t('session.autoReviewNeedsAgent')}>
-              <Checkbox checked={autoReview && agent !== 'none'} disabled={agent === 'none'}
-                onChange={(e) => setAutoReview(e.target.checked)} style={{ width: 'fit-content' }}>
-                <span style={{ fontSize: 13 }}>{t('session.autoReview')}</span>
-              </Checkbox>
-            </Tooltip>
           </div>
+          <Radio.Group value={agent} onChange={(e) => setAgent(e.target.value)} optionType="button" buttonStyle="solid"
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            <Radio.Button value="none">{t('session.agentNone')}</Radio.Button>
+            <Radio.Button value="claude">{t('session.agentClaude')}</Radio.Button>
+            <Radio.Button value="codex">{t('session.agentCodex')}</Radio.Button>
+          </Radio.Group>
+          <Input.TextArea placeholder={t('session.promptPlaceholder')} value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            autoSize={{ minRows: 3, maxRows: 8 }} />
+          <Tooltip placement="right" title={agent !== 'none' ? t('session.autoReviewTip') : t('session.autoReviewNeedsAgent')}>
+            <Checkbox checked={autoReview && agent !== 'none'} disabled={agent === 'none'}
+              onChange={(e) => setAutoReview(e.target.checked)} style={{ width: 'fit-content' }}>
+              <span style={{ fontSize: 13 }}>{t('session.autoReview')}</span>
+            </Checkbox>
+          </Tooltip>
         </Space>
       </Modal>
       <DirPicker open={pick} start={dir || undefined} onPick={(p) => { setDir(p); setPick(false) }} onClose={() => setPick(false)} />

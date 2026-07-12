@@ -123,7 +123,7 @@ export function RaceCreateModal({ open, onClose, onDone }: {
                   onClick={() => setAgents((xs) => xs.filter((_, j) => j !== i))}>✕</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: AGENT_COLOR[a] }}>{a === 'claude' ? 'Claude' : 'Codex'}</span>
                 <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, color: 'var(--text-dimmer)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  roam/{slug}-{String.fromCharCode(97 + i)}
+                  {slug}-{String.fromCharCode(97 + i)}
                 </span>
               </div>
             ))}

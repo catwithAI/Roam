@@ -193,8 +193,9 @@ func (a *API) SessionWorktreeStatus(c *gin.Context) {
 
 // ── 组合 WorktreeSession API（事务编排）──────────────────
 
-// autoBranch 从会话名派生占位分支 roam/<slug>。分支语义名不提前指定：
-// agent 开工后按任务 `git branch -m` 动态命名（W1 交互修订 4），这里只要一个安全占位。
+// autoBranch 从会话名派生占位分支（纯 slug，不强加前缀——用户想要什么前缀
+// 由 agent 开工后 `git branch -m` 自定，或走 W4 手动指定；roam 身份在
+// roam.* worktree config 里，不靠分支名）。
 func autoBranch(session string) string {
 	s := strings.ToLower(session)
 	s = strings.Map(func(r rune) rune {
@@ -210,7 +211,7 @@ func autoBranch(session string) string {
 	if s == "" {
 		s = "task"
 	}
-	return "roam/" + s
+	return s
 }
 
 // shellQuote POSIX 单引号包裹（路径注入会话 shell 时防空格/特殊字符）。

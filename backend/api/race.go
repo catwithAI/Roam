@@ -85,7 +85,7 @@ func (s *RaceStore) get(id string) *Race {
 
 // RaceCreate POST /races {name, dir, base?, prompt, contestants: [{agent, cmd}]}
 // 逐选手编排（先会话后 worktree，同组合 API）：建会话 → 建 worktree（分支
-// roam/<竞赛名>-<a/b/c>，即赛道身份，不随 agent 改名）→ cd → 发同一道题。
+// <竞赛名>-<a/b/c>，即赛道身份，不随 agent 改名）→ cd → 发同一道题。
 // 单个选手失败只标记该选手，不拖累其他人。
 func (a *API) RaceCreate(c *gin.Context) {
 	var b struct {

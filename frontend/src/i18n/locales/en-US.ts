@@ -805,7 +805,7 @@ const enUS = {
   'session.promptPlaceholder': 'Task: describe what to do in natural language — sent to the agent as its first instruction…',
   'session.promptOrNameRequired': 'Describe the task, or set a session name',
   'session.nameLabel': 'Session',
-  'session.wt.namingHint': 'Before starting, rename the current branch to something semantic: git branch -m roam/<short-kebab-case>. Then proceed with the task below.',
+  'session.wt.namingHint': 'Before starting, rename the current branch to something semantic (git branch -m <short-kebab-case>; pick your own prefix like feat/ or fix/). Then proceed with the task below.',
   'session.namePlaceholder2': 'Session name (short; leave empty to auto-name from the task)',
   'session.wt.where': 'Workspace',
   'session.wt.mainRepo': 'Main repo',

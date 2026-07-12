@@ -133,7 +133,7 @@ func TestWorktreeSessionLifecycle(t *testing.T) {
 	}
 	data := resp["data"].(map[string]any)
 	wtPath := data["path"].(string)
-	if data["branch"] != "roam/e2e-main" || !strings.Contains(wtPath, ".worktrees") {
+	if data["branch"] != "e2e-main" || !strings.Contains(wtPath, ".worktrees") {
 		t.Fatalf("bad data: %v", data)
 	}
 	if !strings.Contains(tmuxOut("list-sessions", "-F", "#{session_name}"), "e2e-main") {
@@ -228,7 +228,7 @@ func TestRaceLifecycle(t *testing.T) {
 	}
 	a := cts[0].(map[string]any)
 	loser := cts[1].(map[string]any)
-	if a["branch"] != "roam/race-x-a" || loser["branch"] != "roam/race-x-b" {
+	if a["branch"] != "race-x-a" || loser["branch"] != "race-x-b" {
 		t.Fatalf("bad lane branches: %v / %v", a["branch"], loser["branch"])
 	}
 	sessions := tmuxOut("list-sessions", "-F", "#{session_name}")

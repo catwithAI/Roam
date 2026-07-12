@@ -218,9 +218,19 @@ func pathSlug(branch string) string {
 	return s
 }
 
+// defaultBase 解析缺省 base：origin/HEAD 指向的本地分支 → 本地 main → master →
+// 当前 HEAD 分支兜底。很多仓库没设 origin/HEAD（clone 早/本地建库），不能让 base
+// 默认成当前检出的 feature 分支——base 应始终是本地主干。
 func (s *Service) defaultBase(ctx context.Context, repo Repo) string {
 	if out, err := git(ctx, repo.Root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
-		return strings.TrimPrefix(strings.TrimSpace(out), "origin/")
+		if name := strings.TrimPrefix(strings.TrimSpace(out), "origin/"); branchExists(ctx, repo, name) {
+			return name
+		}
+	}
+	for _, name := range []string{"main", "master"} {
+		if branchExists(ctx, repo, name) {
+			return name
+		}
 	}
 	if out, err := git(ctx, repo.Root, "rev-parse", "--abbrev-ref", "HEAD"); err == nil && out != "HEAD" {
 		return strings.TrimSpace(out)
