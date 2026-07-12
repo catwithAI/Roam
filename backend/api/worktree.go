@@ -193,8 +193,45 @@ func (a *API) SessionWorktreeStatus(c *gin.Context) {
 
 // ── 组合 WorktreeSession API（事务编排）──────────────────
 
+// autoBranch 从会话名派生占位分支 roam/<slug>。分支语义名不提前指定：
+// agent 开工后按任务 `git branch -m` 动态命名（W1 交互修订 4），这里只要一个安全占位。
+func autoBranch(session string) string {
+	s := strings.ToLower(session)
+	s = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			return r
+		}
+		return '-'
+	}, s)
+	s = strings.Trim(s, "-.")
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	if s == "" {
+		s = "task"
+	}
+	return "roam/" + s
+}
+
+// shellQuote POSIX 单引号包裹（路径注入会话 shell 时防空格/特殊字符）。
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// cdInto 往会话 shell 排队一条 cd——先建会话再建 worktree 的收尾步：
+// 键入先于前端随后发送的 agent 启动指令，shell 按序执行，且 cd 留在回滚里可见。
+// pane 目标必须写 =name:（精确会话+缺省窗口）：tmux 3.4 send-keys 对裸 =name 报 can't find pane。
+func (a *API) cdInto(session, path string) error {
+	if _, err := a.TT.Run("send-keys", "-t", "="+session+":", "-l", "cd "+shellQuote(path)); err != nil {
+		return err
+	}
+	_, err := a.TT.Run("send-keys", "-t", "="+session+":", "Enter")
+	return err
+}
+
 // WorktreeSessionCreate POST /worktree-sessions {name, dir, branch?, base?, remote?}
-// = Worktree Service 建 worktree → ttmux 建会话；会话失败反向补偿删 worktree/branch。
+// 编排（先会话后 worktree）：ttmux 建会话（cwd=所选目录）→ Worktree Service 建 worktree
+// （分支缺省自动占位）→ 会话内注入 cd；worktree 失败反向补偿 kill 会话。
 func (a *API) WorktreeSessionCreate(c *gin.Context) {
 	var b struct {
 		Name   string `json:"name"`
@@ -210,21 +247,27 @@ func (a *API) WorktreeSessionCreate(c *gin.Context) {
 	b.Name = SanitizeSessionName(b.Name)
 	ctx, cancel := wtCtx(c)
 	defer cancel()
-	wt, err := a.WT.Create(ctx, worktree.CreateReq{Dir: b.Dir, Branch: b.Branch, Base: b.Base, Remote: b.Remote})
-	if err != nil {
-		wtErr(c, err)
-		return
-	}
-	if out, err := a.TT.Run("new-session", "-d", "-s", b.Name, "-c", wt.Path); err != nil {
-		_ = a.WT.Remove(ctx, worktree.RemoveReq{Path: wt.Path, ForceWorktree: true, ForceDeleteBranch: true, IgnoreSessions: true})
+	if out, err := a.TT.Run("new-session", "-d", "-s", b.Name, "-c", b.Dir); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "SESSION_FAILED", "message": ttmux.StripANSI(out)}})
 		return
 	}
+	branch := strings.TrimSpace(b.Branch)
+	if branch == "" {
+		branch = autoBranch(b.Name)
+	}
+	wt, err := a.WT.Create(ctx, worktree.CreateReq{Dir: b.Dir, Branch: branch, Base: b.Base, Remote: b.Remote})
+	if err != nil {
+		_, _ = a.TT.Run("kill", b.Name, "--yes")
+		wtErr(c, err)
+		return
+	}
+	_ = a.cdInto(b.Name, wt.Path)
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"session": b.Name, "path": wt.Path, "branch": wt.Branch, "base": wt.Base}, "name": b.Name})
 }
 
 // SessionForkWorktree POST /sessions/:name/fork-worktree {child, branch?, base?, dir?}
-// = 建 worktree（仓库取父会话 cwd 或显式 dir）→ ttmux fork（meta 记 parent）。
+// 编排（先 subSession 后 worktree）：ttmux fork（cwd=父仓库目录，meta 记 parent）→
+// 建 worktree（分支缺省自动占位）→ 子会话内注入 cd；失败反向补偿 kill 子会话。
 func (a *API) SessionForkWorktree(c *gin.Context) {
 	parent := sessionParam(c)
 	var b struct {
@@ -255,19 +298,24 @@ func (a *API) SessionForkWorktree(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "NO_DIR", "message": "cannot resolve parent cwd; pass dir explicitly"}})
 		return
 	}
-	wt, err := a.WT.Create(ctx, worktree.CreateReq{Dir: dir, Branch: b.Branch, Base: b.Base})
+	out, err := a.TT.Run("fork", parent, b.Child, "--dir", dir, "--detach", "--json")
 	if err != nil {
-		wtErr(c, err)
-		return
-	}
-	out, err := a.TT.Run("fork", parent, b.Child, "--dir", wt.Path, "--detach", "--json")
-	if err != nil {
-		_ = a.WT.Remove(ctx, worktree.RemoveReq{Path: wt.Path, ForceWorktree: true, ForceDeleteBranch: true, IgnoreSessions: true})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "FORK_FAILED", "message": ttmux.StripANSI(out)}})
 		return
 	}
 	var forked map[string]string
 	_ = json.Unmarshal([]byte(out), &forked)
+	branch := strings.TrimSpace(b.Branch)
+	if branch == "" {
+		branch = autoBranch(b.Child)
+	}
+	wt, err := a.WT.Create(ctx, worktree.CreateReq{Dir: dir, Branch: branch, Base: b.Base})
+	if err != nil {
+		_, _ = a.TT.Run("kill", b.Child, "--yes")
+		wtErr(c, err)
+		return
+	}
+	_ = a.cdInto(b.Child, wt.Path)
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"session": b.Child, "parent": parent, "path": wt.Path, "branch": wt.Branch, "base": wt.Base}, "name": b.Child})
 }
 

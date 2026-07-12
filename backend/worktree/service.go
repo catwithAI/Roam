@@ -954,6 +954,15 @@ func (s *Service) CommitAll(ctx context.Context, path, msg string) error {
 	return nil
 }
 
+// Head 返回 worktree 当前 HEAD OID（编排层做确认后漂移校验用，如 crown 冻结）。
+func (s *Service) Head(ctx context.Context, path string) (string, error) {
+	out, e := git(ctx, canonical(path), "rev-parse", "--verify", "HEAD")
+	if e != nil {
+		return "", errf("GIT_ERROR", "rev-parse HEAD: %s", out)
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // Branches 返回本地分支列表与默认 base（W1 start-from 选择器用）。
 func (s *Service) Branches(ctx context.Context, dir string) ([]string, string, error) {
 	repo, err := s.ResolveRepo(ctx, dir)
