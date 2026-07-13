@@ -234,6 +234,12 @@ ttmux 的能力止步于「平坦 tmux session + parent 关系」，**不理解 
 | 删除 | 先查占用（有 session/pane 在内 → 默认禁止，引导先关会话）；dry-run 报告将丢失的 dirty/committedAhead 明细；删分支默认 `-d`，需 `-D` 时单独红字勾选 |
 | 刷新 | 5s 轮询（service 缓存兜底）；**不顺带 prune**，底部显式「清理残留」按钮 |
 
+> 实现补充（重做版）：默认**跨仓库总览**——`GET /git/worktrees/all` 汇总当前全部会话触达的
+> 仓库（cwd join），按仓库分组、组头可「聚焦」；目录框留空即总览。行有状态导轨色 + 有货
+> 着色（↑ 蓝/改动 黄），操作补齐 进入会话/新建会话进入（孤儿复活）、对比 base（已提交/未
+> 提交分开统计 + 逐文件补丁，对比到工作区）；删除先列损失（改动/未合并提交）再确认 +
+> 「同时删分支」勾选；筛选 = 状态档（带计数）+ 文本；新建（可手动指定分支名）仅聚焦时可用。
+
 ### W5. 竞赛创建弹窗
 
 布局同前（选手卡、上限 5、资源预估）。入口 = W2「＋ 新建」下拉「新建竞赛…」。提交 = **一次调 `POST /races`**：service 逐选手「建会话（`<竞赛名>-<a/b/c>`，cwd=仓库）→ 建 worktree（分支 `<竞赛名>-<字母>`，即赛道身份，**不随 agent 改名**）→ cd → 发同题」；`race_id/repo/base/branch/worktree/winner/crown 阶段` 落 **Race Service 数据模型**（`<dataDir>/races.json`，不进 SessionMeta、不进 swarm.db）。单个选手失败只标记该选手（`status=failed` + error），不拖累其他人。
