@@ -823,7 +823,8 @@ const zhCN = {
   'session.wt.defaultBranch': '{name}（默认）',
 
   // W4 Worktree 管理抽屉
-  'worktree.entry': 'Worktree',
+  'worktree.entry': 'Worktree 管理',
+  'worktree.entryTip': '查看仓库全部 worktree:含关掉会话后留下的孤儿(改动没丢),可进入/合并/删除/清理',
   'git.wt.badgeTip': '这是一个 git worktree,点击打开管理页',
   'git.wt.baseLine': '基于 {base} · 主仓库 {repo}',
   'git.wt.tabChanges': '改动',

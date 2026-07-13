@@ -2129,7 +2129,9 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
     <Card
       title={<Space size={8}>{t('nav.sessions')}<Tag style={{ margin: 0 }}>{cnt('all')}</Tag></Space>}
       extra={<Space size={8}>
-        <Button onClick={() => { setWtDir(undefined); setWtOpen(true) }}>{t('worktree.entry')}</Button>
+        <Tooltip title={t('worktree.entryTip')}>
+          <Button onClick={() => { setWtDir(undefined); setWtOpen(true) }}>{t('worktree.entry')}</Button>
+        </Tooltip>
         {/* 新建下拉(W5 入口)：主点 = 新建会话；菜单 = 新建竞赛 */}
         <Dropdown.Button type="primary" onClick={() => setNewOpen(true)}
           menu={{ items: [{ key: 'race', label: t('race.new') }], onClick: () => setRaceOpen(true) }}>

@@ -823,7 +823,8 @@ const enUS = {
   'session.wt.defaultBranch': '{name} (default)',
 
   // W4 worktree management drawer
-  'worktree.entry': 'Worktree',
+  'worktree.entry': 'Worktrees',
+  'worktree.entryTip': 'All worktrees of a repo — including orphans left after closing sessions (changes preserved); enter, merge, remove or prune them here',
   'git.wt.badgeTip': 'This is a git worktree; click to manage',
   'git.wt.baseLine': 'base {base} · main repo {repo}',
   'git.wt.tabChanges': 'Changes',
