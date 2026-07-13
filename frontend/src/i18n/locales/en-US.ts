@@ -890,6 +890,7 @@ const enUS = {
   'session.fork.namePlaceholder': 'Child session name (short; empty = auto-named from the task)',
   'session.fork.parentDir': "Parent's directory",
   'session.fork.hintParent': "Work in the parent's directory (small changes, shared context); parent link is recorded, children detach when the parent closes",
+  'session.fork.parentNotRepo': "Parent directory is not a git repository, so no worktree — the child works in the parent's directory",
   'session.fork.childOf': 'Forked from {parent}',
   'session.fork.created': 'Child session forked',
   'session.fork.ok': 'Fork',

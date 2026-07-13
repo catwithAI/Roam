@@ -1826,7 +1826,8 @@ function ForkSessionModal({ parent, onClose, onDone }: { parent: string | null; 
           </Tooltip>
         </div>
         <div style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>
-          {wtMode === 'new' && isGitRepo ? t('session.wt.hintNew') : t('session.fork.hintParent')}
+          {!isGitRepo && dir ? t('session.fork.parentNotRepo')
+            : wtMode === 'new' && isGitRepo ? t('session.wt.hintNew') : t('session.fork.hintParent')}
         </div>
         {wtMode === 'new' && isGitRepo && (
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
