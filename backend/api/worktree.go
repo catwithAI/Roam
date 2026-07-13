@@ -71,6 +71,13 @@ func (a *API) WorktreeList(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": list})
 }
 
+// WorktreeListAll GET /git/worktrees/all —— 跨仓库总览：当前全部会话触达的仓库 → worktree 清单。
+func (a *API) WorktreeListAll(c *gin.Context) {
+	ctx, cancel := wtCtx(c)
+	defer cancel()
+	c.JSON(http.StatusOK, gin.H{"data": a.WT.ListAll(ctx)})
+}
+
 // WorktreeDiff GET /git/worktree/diff?path=[&file=] —— 无 file 返回统计，带 file 返回该文件 diff 文本。
 func (a *API) WorktreeDiff(c *gin.Context) {
 	ctx, cancel := wtCtx(c)

@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -575,6 +576,37 @@ func resolveCwd(ctx context.Context, cwd string) *AnnotationHit {
 	return hit
 }
 
+// RepoWorktrees 是 ListAll 的分组单元：一个仓库 + 其全部 worktree。
+type RepoWorktrees struct {
+	Repo      string     `json:"repo"`
+	Worktrees []Worktree `json:"worktrees"`
+}
+
+// ListAll 汇总当前全部会话（pane cwd）触达的仓库的 worktree 清单——W4 跨仓库总览。
+// 仓库集合来自 cwd join（5s 缓存），逐仓库 List（3s 缓存），单仓库失败跳过不拖累整体。
+func (s *Service) ListAll(ctx context.Context) []RepoWorktrees {
+	seen := map[string]bool{}
+	var repos []string
+	for _, p := range tmuxPanes(ctx) {
+		hit := resolveCwd(ctx, p.Cwd)
+		if hit == nil || hit.Repo == "" || seen[hit.Repo] {
+			continue
+		}
+		seen[hit.Repo] = true
+		repos = append(repos, hit.Repo)
+	}
+	sort.Strings(repos)
+	out := []RepoWorktrees{}
+	for _, root := range repos {
+		list, err := s.List(ctx, root)
+		if err != nil {
+			continue
+		}
+		out = append(out, RepoWorktrees{Repo: root, Worktrees: list})
+	}
+	return out
+}
+
 // Annotations 返回 {session → {primary, matches[], ambiguous}}。
 func (s *Service) Annotations(ctx context.Context) map[string]*Annotation {
 	res := map[string]*Annotation{}
@@ -693,7 +725,9 @@ func (s *Service) DiffBaseFile(ctx context.Context, path, file string) (string, 
 	if e != nil {
 		return "", errf("GIT_ERROR", "merge-base: %s", mb)
 	}
-	out, e := git(ctx, path, "diff", strings.TrimSpace(mb), "HEAD", "--", file)
+	// 对比到工作区（不带 HEAD）：单文件视图呈现 已提交+未提交 的合并结果，
+	// 与前端文件条目的合并口径一致（汇总统计仍分开两组数字）。
+	out, e := git(ctx, path, "diff", strings.TrimSpace(mb), "--", file)
 	if e != nil {
 		return "", errf("GIT_ERROR", "%s", out)
 	}
