@@ -210,9 +210,11 @@ ttmux 的能力止步于「平坦 tmux session + parent 关系」，**不理解 
 
 > 实现补充（F 期收尾）：数据源改 `GET /sessions?tree=1`（parent 投影树拍平）；分组优先级
 > **竞赛 > 父子树 > 仓库**——有活父/子的会话按 parent 树渲染（子行 ⑂ 紫色导线、按深度缩进），
-> 不再落入仓库分组。会话行新增「派生」入口 → ForkSessionModal：子会话名（可留空派生）+
-> 在哪干活二选一（新建 worktree〔父目录是仓库时默认〕/ 父目录）+ Agent + 需求；
-> 提交走 `POST /sessions/:parent/fork-worktree` 或（父目录档）`POST /sessions/:parent/fork`。
+> 不再落入仓库分组。会话行新增「派生」入口 → 复用新建会话同一张表单（parent 模式）：
+> 目录固定 = 父会话 cwd（派生的语义就是在父目录干活，只读展示），其余与新建完全一致——
+> 在哪干活三选一（父目录 / 新建 worktree / 已有(N)，非仓库父置灰并说明原因）、
+> 勾新建 worktree 时 prompt 同样前置命名约定。提交走 `POST /sessions/:parent/fork-worktree`
+> 或（父目录/已有档）`POST /sessions/:parent/fork`。
 
 ### W3. Git 面板：worktree 态 + 「对比 base」
 

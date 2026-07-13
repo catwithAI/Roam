@@ -887,7 +887,6 @@ const zhCN = {
   // W5/W6 竞赛
   'session.fork.entry': '派生',
   'session.fork.title': '从 {parent} 派生子会话',
-  'session.fork.namePlaceholder': '子会话名(短,留空则从需求自动起名)',
   'session.fork.parentDir': '父目录',
   'session.fork.hintParent': '与父会话同一目录干活(小改动/共享上下文);记录父子关系,父关闭时子自动独立',
   'session.fork.parentNotRepo': '父目录不是 git 仓库,无法建 worktree——将与父会话同目录干活',

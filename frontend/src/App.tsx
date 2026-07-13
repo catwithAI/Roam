@@ -1517,8 +1517,10 @@ function shq(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }
 
-// ── 新建会话（prompt-first 派活）──
-function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (name: string) => void }) {
+// ── 新建会话（prompt-first 派活）/ 派生子会话 ──
+// parent 非空 = 派生模式：同一张表单（目录默认父 cwd 可改、三选一、命名约定 prompt 全同款），
+// 仅提交路由不同（fork / fork-worktree，meta 记父子关系）。两处不再各维护一份表单。
+function NewSessionModal({ open, parent, onClose, onDone }: { open: boolean; parent?: string | null; onClose: () => void; onDone: (name: string) => void }) {
   const [prompt, setPrompt] = useState('')
   const [name, setName] = useState('')
   const [nameTouched, setNameTouched] = useState(false)
@@ -1541,11 +1543,17 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
   const { t } = useI18n()
   const [prefs] = usePreferences()
   useEffect(() => {
-    if (open) {
-      setPrompt(''); setName(''); setNameTouched(false); setDir(''); setAgent('claude'); setWtMode('repo'); setAutoReview(false); setIsGitRepo(false)
-      setBase(''); setBranches([]); setDefBranch(''); setExistingWts([]); setWtPath('')
+    if (!open) return
+    setPrompt(''); setName(''); setNameTouched(false); setDir(''); setAgent('claude'); setWtMode('repo'); setAutoReview(false); setIsGitRepo(false)
+    setBase(''); setBranches([]); setDefBranch(''); setExistingWts([]); setWtPath('')
+    // 派生模式：目录默认父会话 cwd（可改成任意目录，与新建一致）
+    if (parent) {
+      let cancelled = false
+      api('GET', `/sessions/${encodeURIComponent(parent)}/cwd`)
+        .then((r) => { if (!cancelled) setDir(r?.data?.dir || '') }).catch(() => {})
+      return () => { cancelled = true }
     }
-  }, [open])
+  }, [open, parent])
   useEffect(() => {
     const d = dir.trim()
     if (!d) { setIsGitRepo(false); return }
@@ -1596,17 +1604,26 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
       let sessionDir = dir.trim()
       let actual: string
       if (wtMode === 'new' && isGitRepo && sessionDir) {
-        // 组合 API（先会话后 worktree）：分支不传——后端按会话名占位，Agent 开工后语义化
-        const res = await api('POST', '/worktree-sessions', {
-          name: finalName, dir: sessionDir,
-          ...(base ? { base } : {}),
-        })
+        // 组合 API（先会话后 worktree）：分支不传——后端按会话名占位，Agent 开工后语义化；
+        // 派生模式走 fork-worktree（同编排 + meta 记父子）
+        const res = parent
+          ? await api('POST', `/sessions/${encodeURIComponent(parent)}/fork-worktree`, {
+            child: finalName, dir: sessionDir, ...(base ? { base } : {}),
+          })
+          : await api('POST', '/worktree-sessions', {
+            name: finalName, dir: sessionDir, ...(base ? { base } : {}),
+          })
         actual = res.name || res.data?.session || finalName
         sessionDir = res.data?.path || sessionDir
       } else {
-        // 主仓库直接用所选目录；「已有 worktree」= 会话 cwd 指进该 worktree
+        // 主仓库直接用所选目录；「已有 worktree」= 会话 cwd 指进该 worktree；
+        // 派生模式走 fork（dir 留空则继承父 cwd）
         if (wtMode === 'existing' && wtPath) sessionDir = wtPath
-        const res = await api('POST', '/sessions', { name: finalName, dir: sessionDir })
+        const res = parent
+          ? await api('POST', `/sessions/${encodeURIComponent(parent)}/fork`, {
+            child: finalName, ...(sessionDir ? { dir: sessionDir } : {}),
+          })
+          : await api('POST', '/sessions', { name: finalName, dir: sessionDir })
         actual = res.name || finalName
       }
       if (agent !== 'none') {
@@ -1629,53 +1646,62 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
           }).catch((e: any) => message.warning(t('session.autoReviewTrackFailed') + ': ' + e.message))
         }
       }
-      pushRecentDir(dir); message.success(t('session.created')); onClose(); onDone(actual)
+      pushRecentDir(dir); message.success(t(parent ? 'session.fork.created' : 'session.created')); onClose(); onDone(actual)
     }
     catch (e: any) { message.error(e.message) }
     finally { setCreating(false) }
   }
   return (
     <>
-      <Modal open={open} onCancel={onClose} onOk={ok} okText={t('file.create')} title={t('session.new')} destroyOnClose
+      <Modal open={open} onCancel={onClose} onOk={ok}
+        okText={parent ? t('session.fork.ok') : t('file.create')}
+        title={parent ? t('session.fork.title', { parent }) : t('session.new')} destroyOnClose
         confirmLoading={creating}>
         <Space direction="vertical" style={{ width: '100%' }}>
           {/* 名称是一等短输入(可留空自动命名)；需求是任务本体,发给 Agent/派生分支 */}
           <Input placeholder={t('session.namePlaceholder2')} value={name} autoFocus
             onChange={(e) => { setName(e.target.value); setNameTouched(true) }} />
-          {/* 顺序（交互修订 5）：先定位置——名字 → 目录 → 在哪干活；再定执行——Agent → 需求 */}
-          <Space.Compact style={{ width: '100%' }}>
-            <AutoComplete style={{ flex: 1 }} value={dir} onChange={setDir}
-              options={recentDirs().map((d) => ({ value: d }))}
-              filterOption={(input, opt) => String(opt?.value).toLowerCase().includes(input.toLowerCase())}
-              placeholder={t('session.dirPlaceholder')} />
-            <Button onClick={() => setPick(true)}>{t('common.browse')}</Button>
-          </Space.Compact>
-          {recentDirs().length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {recentDirs().map((d) => (
-                <Tooltip key={d} title={d}>
-                  <Tag color={d === dir ? 'blue' : undefined} style={{ cursor: 'pointer', margin: 0, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    onClick={() => setDir(d)}>
-                    {d.split('/').filter(Boolean).pop() || d}
-                  </Tag>
-                </Tooltip>
-              ))}
-            </div>
-          )}
+          {/* 顺序（交互修订 5）：先定位置——名字 → 目录 → 在哪干活；再定执行——Agent → 需求。
+              派生模式目录固定 = 父会话 cwd（派生的语义就是在父目录干活），只读展示 */}
+          {parent ? (
+            <div style={{ color: 'var(--text-dimmer)', fontSize: 12, fontFamily: 'ui-monospace, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={dir}>{dir || '…'}</div>
+          ) : (<>
+            <Space.Compact style={{ width: '100%' }}>
+              <AutoComplete style={{ flex: 1 }} value={dir} onChange={setDir}
+                options={recentDirs().map((d) => ({ value: d }))}
+                filterOption={(input, opt) => String(opt?.value).toLowerCase().includes(input.toLowerCase())}
+                placeholder={t('session.dirPlaceholder')} />
+              <Button onClick={() => setPick(true)}>{t('common.browse')}</Button>
+            </Space.Compact>
+            {recentDirs().length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {recentDirs().map((d) => (
+                  <Tooltip key={d} title={d}>
+                    <Tag color={d === dir ? 'blue' : undefined} style={{ cursor: 'pointer', margin: 0, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      onClick={() => setDir(d)}>
+                      {d.split('/').filter(Boolean).pop() || d}
+                    </Tag>
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+          </>)}
           {/* 工作区三选一（W1 交互修订）：常驻不隐藏(cc96123 教训)——非 git 目录整组置灰+tooltip */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ color: 'var(--text-dim)', fontSize: 13, flex: '0 0 auto' }}>{t('session.wt.where')}</span>
-              <Tooltip title={isGitRepo ? '' : t('session.worktreeNeedsRepo')}>
+              <Tooltip title={isGitRepo ? '' : parent ? t('session.fork.parentNotRepo') : t('session.worktreeNeedsRepo')}>
                 <Segmented size="small" value={isGitRepo ? wtMode : 'repo'} onChange={(v) => setWtMode(v as any)} options={[
-                  { label: t('session.wt.mainRepo'), value: 'repo' },
+                  { label: parent ? t('session.fork.parentDir') : t('session.wt.mainRepo'), value: 'repo' },
                   { label: t('session.wt.newWt'), value: 'new', disabled: !isGitRepo },
                   { label: t('session.wt.existingWt', { count: existingWts.length }), value: 'existing', disabled: !isGitRepo || !existingWts.length },
                 ]} />
               </Tooltip>
             </div>
             <div style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>
-              {!isGitRepo ? t('session.worktreeNeedsRepo') : wtMode === 'repo' ? t('session.wt.hintRepo') : wtMode === 'new' ? t('session.wt.hintNew') : t('session.wt.hintExisting')}
+              {!isGitRepo ? (parent ? t('session.fork.parentNotRepo') : t('session.worktreeNeedsRepo'))
+                : wtMode === 'repo' ? (parent ? t('session.fork.hintParent') : t('session.wt.hintRepo'))
+                  : wtMode === 'new' ? t('session.wt.hintNew') : t('session.wt.hintExisting')}
             </div>
             {wtMode === 'existing' && (
               <Select value={wtPath || undefined} onChange={(v) => setWtPath(v)} placeholder={t('session.wt.pickExisting')}
@@ -1741,122 +1767,6 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
   )
 }
 
-// ── 派生子会话（fork）：父会话行「派生」入口。子会话记 parent（W2 父子树），
-// 在哪干活二选一：新建 worktree（父目录是 git 仓库时默认，隔离干活）/ 父目录（共享上下文）。
-function ForkSessionModal({ parent, onClose, onDone }: { parent: string | null; onClose: () => void; onDone: (name: string) => void }) {
-  const [name, setName] = useState('')
-  const [prompt, setPrompt] = useState('')
-  const [agent, setAgent] = useState<'none' | 'claude' | 'codex'>('claude')
-  const [wtMode, setWtMode] = useState<'new' | 'parent'>('new')
-  const [dir, setDir] = useState('')
-  const [isGitRepo, setIsGitRepo] = useState(false)
-  const [base, setBase] = useState('')
-  const [branches, setBranches] = useState<string[]>([])
-  const [defBranch, setDefBranch] = useState('')
-  const [creating, setCreating] = useState(false)
-  const { message } = AntApp.useApp()
-  const { t } = useI18n()
-  const [prefs] = usePreferences()
-  useEffect(() => {
-    if (!parent) return
-    setName(''); setPrompt(''); setAgent('claude'); setWtMode('new'); setDir(''); setIsGitRepo(false)
-    setBase(''); setBranches([]); setDefBranch(''); setCreating(false)
-    let cancelled = false
-    api('GET', `/sessions/${encodeURIComponent(parent)}/cwd`).then(async (r) => {
-      const d = r?.data?.dir || ''
-      if (cancelled) return
-      setDir(d)
-      if (!d) { setWtMode('parent'); return }
-      const repo = !!(await api('GET', `/git/is-repo?path=${encodeURIComponent(d)}`).catch(() => null))?.data?.repo
-      if (cancelled) return
-      setIsGitRepo(repo)
-      if (!repo) { setWtMode('parent'); return }
-      const br = await api('GET', `/git/branches?dir=${encodeURIComponent(d)}`).catch(() => null)
-      if (cancelled) return
-      const bs: string[] = br?.data?.branches || []
-      setBranches(bs); setDefBranch(br?.data?.default || ''); setBase(br?.data?.default || '')
-    }).catch(() => { if (!cancelled) setWtMode('parent') })
-    return () => { cancelled = true }
-  }, [parent])
-  const ok = async () => {
-    if (!parent) return
-    let finalName = name.trim()
-    if (!finalName && prompt.trim()) finalName = taskNameFromPrompt(prompt).slice(0, 16).replace(/[-，。,.\s]+$/g, '')
-    if (!finalName) finalName = parent + '-sub'
-    try {
-      setCreating(true)
-      let actual: string
-      let sessionDir = dir
-      if (wtMode === 'new' && isGitRepo) {
-        const res = await api('POST', `/sessions/${encodeURIComponent(parent)}/fork-worktree`, {
-          child: finalName, ...(base ? { base } : {}),
-        })
-        actual = res.name || finalName
-        sessionDir = res.data?.path || sessionDir
-      } else {
-        const res = await api('POST', `/sessions/${encodeURIComponent(parent)}/fork`, { child: finalName })
-        actual = res.name || finalName
-      }
-      if (agent !== 'none' && prompt.trim()) {
-        const cmd = agent === 'claude' ? (prefs.claudeCommand || 'claude') : (prefs.codexCommand || 'codex')
-        const naming = wtMode === 'new' && isGitRepo ? t('session.wt.namingHint') + '\n\n' : ''
-        await api('POST', '/tasks/_/send', { sess: actual, msg: `${cmd} ${shq(naming + prompt.trim())}` })
-      } else if (agent !== 'none') {
-        const cmd = agent === 'claude' ? (prefs.claudeCommand || 'claude') : (prefs.codexCommand || 'codex')
-        await api('POST', '/tasks/_/send', { sess: actual, msg: cmd })
-      }
-      message.success(t('session.fork.created'))
-      onClose(); onDone(actual)
-    } catch (e: any) { message.error(e.message) }
-    finally { setCreating(false) }
-  }
-  return (
-    <Modal open={!!parent} onCancel={onClose} onOk={ok} okText={t('session.fork.ok')} destroyOnClose
-      title={t('session.fork.title', { parent: parent || '' })} confirmLoading={creating}>
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <Input placeholder={t('session.fork.namePlaceholder')} value={name} autoFocus onChange={(e) => setName(e.target.value)} />
-        <div style={{ color: 'var(--text-dimmer)', fontSize: 12, fontFamily: 'ui-monospace, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={dir}>{dir}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ color: 'var(--text-dim)', fontSize: 13, flex: '0 0 auto' }}>{t('session.wt.where')}</span>
-          <Tooltip title={isGitRepo ? '' : t('session.worktreeNeedsRepo')}>
-            <Segmented size="small" value={isGitRepo ? wtMode : 'parent'} onChange={(v) => setWtMode(v as any)} options={[
-              { label: t('session.wt.newWt'), value: 'new', disabled: !isGitRepo },
-              { label: t('session.fork.parentDir'), value: 'parent' },
-            ]} />
-          </Tooltip>
-        </div>
-        <div style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>
-          {!isGitRepo && dir ? t('session.fork.parentNotRepo')
-            : wtMode === 'new' && isGitRepo ? t('session.wt.hintNew') : t('session.fork.hintParent')}
-        </div>
-        {wtMode === 'new' && isGitRepo && (
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ flex: '0 0 52px', color: 'var(--text-dim)', fontSize: 13 }}>{t('session.wt.base')}</span>
-              <Select size="small" showSearch optionFilterProp="label" style={{ flex: 1, minWidth: 0 }}
-                value={base || undefined} onChange={(v) => setBase(v)} placeholder={t('session.wt.basePlaceholder')}
-                options={[
-                  ...(defBranch ? [{ value: defBranch, label: t('session.wt.defaultBranch', { name: defBranch }) }] : []),
-                  ...branches.filter((b) => b !== defBranch).map((b) => ({ value: b, label: b })),
-                ]} />
-            </div>
-            <div style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>
-              {agent !== 'none' ? t('session.wt.autoNote') : t('session.wt.autoNoteNoAgent')}
-            </div>
-          </div>
-        )}
-        <Radio.Group value={agent} onChange={(e) => setAgent(e.target.value)} optionType="button" buttonStyle="solid"
-          style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          <Radio.Button value="none">{t('session.agentNone')}</Radio.Button>
-          <Radio.Button value="claude">{t('session.agentClaude')}</Radio.Button>
-          <Radio.Button value="codex">{t('session.agentCodex')}</Radio.Button>
-        </Radio.Group>
-        <Input.TextArea placeholder={t('session.promptPlaceholder')} value={prompt}
-          onChange={(e) => setPrompt(e.target.value)} autoSize={{ minRows: 3, maxRows: 8 }} />
-      </Space>
-    </Modal>
-  )
-}
 
 function RenameSessionModal({ session, onClose, onDone }: { session: string | null; onClose: () => void; onDone: (oldName: string, newName: string) => void }) {
   const [name, setName] = useState('')
@@ -2386,8 +2296,8 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
               )
             }} />
           )}
-      <NewSessionModal open={newOpen} onClose={() => setNewOpen(false)} onDone={(name) => { load(); openTerm(name) }} />
-      <ForkSessionModal parent={forking} onClose={() => setForking(null)} onDone={(name) => { load(); openTerm(name) }} />
+      <NewSessionModal open={newOpen || !!forking} parent={forking}
+        onClose={() => { setNewOpen(false); setForking(null) }} onDone={(name) => { load(); openTerm(name) }} />
       <CloseWorktreeModal info={closing} onClose={() => setClosing(null)} onDone={(name) => { closeTerm(name); load() }} />
       <Suspense fallback={null}>
         <WorktreePanel open={wtOpen} onClose={() => { setWtOpen(false); setWtDir(undefined) }} openTerm={openTerm} initialDir={wtDir} />
