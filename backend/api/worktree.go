@@ -71,6 +71,13 @@ func (a *API) WorktreeList(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": list})
 }
 
+// WorktreeListAll GET /git/worktrees/all —— 跨仓库总览：当前全部会话触达的仓库 → worktree 清单。
+func (a *API) WorktreeListAll(c *gin.Context) {
+	ctx, cancel := wtCtx(c)
+	defer cancel()
+	c.JSON(http.StatusOK, gin.H{"data": a.WT.ListAll(ctx)})
+}
+
 // WorktreeDiff GET /git/worktree/diff?path=[&file=] —— 无 file 返回统计，带 file 返回该文件 diff 文本。
 func (a *API) WorktreeDiff(c *gin.Context) {
 	ctx, cancel := wtCtx(c)
@@ -264,6 +271,31 @@ func (a *API) WorktreeSessionCreate(c *gin.Context) {
 	}
 	_ = a.cdInto(b.Name, wt.Path)
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"session": b.Name, "path": wt.Path, "branch": wt.Branch, "base": wt.Base}, "name": b.Name})
+}
+
+// SessionFork POST /sessions/:name/fork {child, dir?}
+// 纯 subSession 派生（无 worktree）：ttmux fork（meta 记 parent，缺省继承父 cwd）。
+func (a *API) SessionFork(c *gin.Context) {
+	parent := sessionParam(c)
+	var b struct {
+		Child string `json:"child"`
+		Dir   string `json:"dir"`
+	}
+	if err := c.ShouldBindJSON(&b); err != nil || b.Child == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST"}})
+		return
+	}
+	b.Child = SanitizeSessionName(b.Child)
+	args := []string{"fork", parent, b.Child, "--detach", "--json"}
+	if d := strings.TrimSpace(b.Dir); d != "" {
+		args = append(args, "--dir", d)
+	}
+	out, err := a.TT.Run(args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "FORK_FAILED", "message": ttmux.StripANSI(out)}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"session": b.Child, "parent": parent}, "name": b.Child})
 }
 
 // SessionForkWorktree POST /sessions/:name/fork-worktree {child, branch?, base?, dir?}

@@ -1517,8 +1517,10 @@ function shq(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }
 
-// ── 新建会话（prompt-first 派活）──
-function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (name: string) => void }) {
+// ── 新建会话（prompt-first 派活）/ 派生子会话 ──
+// parent 非空 = 派生模式：同一张表单（目录默认父 cwd 可改、三选一、命名约定 prompt 全同款），
+// 仅提交路由不同（fork / fork-worktree，meta 记父子关系）。两处不再各维护一份表单。
+function NewSessionModal({ open, parent, onClose, onDone }: { open: boolean; parent?: string | null; onClose: () => void; onDone: (name: string) => void }) {
   const [prompt, setPrompt] = useState('')
   const [name, setName] = useState('')
   const [nameTouched, setNameTouched] = useState(false)
@@ -1541,11 +1543,17 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
   const { t } = useI18n()
   const [prefs] = usePreferences()
   useEffect(() => {
-    if (open) {
-      setPrompt(''); setName(''); setNameTouched(false); setDir(''); setAgent('claude'); setWtMode('repo'); setAutoReview(false); setIsGitRepo(false)
-      setBase(''); setBranches([]); setDefBranch(''); setExistingWts([]); setWtPath('')
+    if (!open) return
+    setPrompt(''); setName(''); setNameTouched(false); setDir(''); setAgent('claude'); setWtMode('repo'); setAutoReview(false); setIsGitRepo(false)
+    setBase(''); setBranches([]); setDefBranch(''); setExistingWts([]); setWtPath('')
+    // 派生模式：目录默认父会话 cwd（可改成任意目录，与新建一致）
+    if (parent) {
+      let cancelled = false
+      api('GET', `/sessions/${encodeURIComponent(parent)}/cwd`)
+        .then((r) => { if (!cancelled) setDir(r?.data?.dir || '') }).catch(() => {})
+      return () => { cancelled = true }
     }
-  }, [open])
+  }, [open, parent])
   useEffect(() => {
     const d = dir.trim()
     if (!d) { setIsGitRepo(false); return }
@@ -1596,17 +1604,26 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
       let sessionDir = dir.trim()
       let actual: string
       if (wtMode === 'new' && isGitRepo && sessionDir) {
-        // 组合 API（先会话后 worktree）：分支不传——后端按会话名占位，Agent 开工后语义化
-        const res = await api('POST', '/worktree-sessions', {
-          name: finalName, dir: sessionDir,
-          ...(base ? { base } : {}),
-        })
+        // 组合 API（先会话后 worktree）：分支不传——后端按会话名占位，Agent 开工后语义化；
+        // 派生模式走 fork-worktree（同编排 + meta 记父子）
+        const res = parent
+          ? await api('POST', `/sessions/${encodeURIComponent(parent)}/fork-worktree`, {
+            child: finalName, dir: sessionDir, ...(base ? { base } : {}),
+          })
+          : await api('POST', '/worktree-sessions', {
+            name: finalName, dir: sessionDir, ...(base ? { base } : {}),
+          })
         actual = res.name || res.data?.session || finalName
         sessionDir = res.data?.path || sessionDir
       } else {
-        // 主仓库直接用所选目录；「已有 worktree」= 会话 cwd 指进该 worktree
+        // 主仓库直接用所选目录；「已有 worktree」= 会话 cwd 指进该 worktree；
+        // 派生模式走 fork（dir 留空则继承父 cwd）
         if (wtMode === 'existing' && wtPath) sessionDir = wtPath
-        const res = await api('POST', '/sessions', { name: finalName, dir: sessionDir })
+        const res = parent
+          ? await api('POST', `/sessions/${encodeURIComponent(parent)}/fork`, {
+            child: finalName, ...(sessionDir ? { dir: sessionDir } : {}),
+          })
+          : await api('POST', '/sessions', { name: finalName, dir: sessionDir })
         actual = res.name || finalName
       }
       if (agent !== 'none') {
@@ -1629,53 +1646,62 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
           }).catch((e: any) => message.warning(t('session.autoReviewTrackFailed') + ': ' + e.message))
         }
       }
-      pushRecentDir(dir); message.success(t('session.created')); onClose(); onDone(actual)
+      pushRecentDir(dir); message.success(t(parent ? 'session.fork.created' : 'session.created')); onClose(); onDone(actual)
     }
     catch (e: any) { message.error(e.message) }
     finally { setCreating(false) }
   }
   return (
     <>
-      <Modal open={open} onCancel={onClose} onOk={ok} okText={t('file.create')} title={t('session.new')} destroyOnClose
+      <Modal open={open} onCancel={onClose} onOk={ok}
+        okText={parent ? t('session.fork.ok') : t('file.create')}
+        title={parent ? t('session.fork.title', { parent }) : t('session.new')} destroyOnClose
         confirmLoading={creating}>
         <Space direction="vertical" style={{ width: '100%' }}>
           {/* 名称是一等短输入(可留空自动命名)；需求是任务本体,发给 Agent/派生分支 */}
           <Input placeholder={t('session.namePlaceholder2')} value={name} autoFocus
             onChange={(e) => { setName(e.target.value); setNameTouched(true) }} />
-          {/* 顺序（交互修订 5）：先定位置——名字 → 目录 → 在哪干活；再定执行——Agent → 需求 */}
-          <Space.Compact style={{ width: '100%' }}>
-            <AutoComplete style={{ flex: 1 }} value={dir} onChange={setDir}
-              options={recentDirs().map((d) => ({ value: d }))}
-              filterOption={(input, opt) => String(opt?.value).toLowerCase().includes(input.toLowerCase())}
-              placeholder={t('session.dirPlaceholder')} />
-            <Button onClick={() => setPick(true)}>{t('common.browse')}</Button>
-          </Space.Compact>
-          {recentDirs().length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {recentDirs().map((d) => (
-                <Tooltip key={d} title={d}>
-                  <Tag color={d === dir ? 'blue' : undefined} style={{ cursor: 'pointer', margin: 0, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    onClick={() => setDir(d)}>
-                    {d.split('/').filter(Boolean).pop() || d}
-                  </Tag>
-                </Tooltip>
-              ))}
-            </div>
-          )}
+          {/* 顺序（交互修订 5）：先定位置——名字 → 目录 → 在哪干活；再定执行——Agent → 需求。
+              派生模式目录固定 = 父会话 cwd（派生的语义就是在父目录干活），只读展示 */}
+          {parent ? (
+            <div style={{ color: 'var(--text-dimmer)', fontSize: 12, fontFamily: 'ui-monospace, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={dir}>{dir || '…'}</div>
+          ) : (<>
+            <Space.Compact style={{ width: '100%' }}>
+              <AutoComplete style={{ flex: 1 }} value={dir} onChange={setDir}
+                options={recentDirs().map((d) => ({ value: d }))}
+                filterOption={(input, opt) => String(opt?.value).toLowerCase().includes(input.toLowerCase())}
+                placeholder={t('session.dirPlaceholder')} />
+              <Button onClick={() => setPick(true)}>{t('common.browse')}</Button>
+            </Space.Compact>
+            {recentDirs().length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {recentDirs().map((d) => (
+                  <Tooltip key={d} title={d}>
+                    <Tag color={d === dir ? 'blue' : undefined} style={{ cursor: 'pointer', margin: 0, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      onClick={() => setDir(d)}>
+                      {d.split('/').filter(Boolean).pop() || d}
+                    </Tag>
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+          </>)}
           {/* 工作区三选一（W1 交互修订）：常驻不隐藏(cc96123 教训)——非 git 目录整组置灰+tooltip */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ color: 'var(--text-dim)', fontSize: 13, flex: '0 0 auto' }}>{t('session.wt.where')}</span>
-              <Tooltip title={isGitRepo ? '' : t('session.worktreeNeedsRepo')}>
+              <Tooltip title={isGitRepo ? '' : parent ? t('session.fork.parentNotRepo') : t('session.worktreeNeedsRepo')}>
                 <Segmented size="small" value={isGitRepo ? wtMode : 'repo'} onChange={(v) => setWtMode(v as any)} options={[
-                  { label: t('session.wt.mainRepo'), value: 'repo' },
+                  { label: parent ? t('session.fork.parentDir') : t('session.wt.mainRepo'), value: 'repo' },
                   { label: t('session.wt.newWt'), value: 'new', disabled: !isGitRepo },
                   { label: t('session.wt.existingWt', { count: existingWts.length }), value: 'existing', disabled: !isGitRepo || !existingWts.length },
                 ]} />
               </Tooltip>
             </div>
             <div style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>
-              {!isGitRepo ? t('session.worktreeNeedsRepo') : wtMode === 'repo' ? t('session.wt.hintRepo') : wtMode === 'new' ? t('session.wt.hintNew') : t('session.wt.hintExisting')}
+              {!isGitRepo ? (parent ? t('session.fork.parentNotRepo') : t('session.worktreeNeedsRepo'))
+                : wtMode === 'repo' ? (parent ? t('session.fork.hintParent') : t('session.wt.hintRepo'))
+                  : wtMode === 'new' ? t('session.wt.hintNew') : t('session.wt.hintExisting')}
             </div>
             {wtMode === 'existing' && (
               <Select value={wtPath || undefined} onChange={(v) => setWtPath(v)} placeholder={t('session.wt.pickExisting')}
@@ -1740,6 +1766,7 @@ function NewSessionModal({ open, onClose, onDone }: { open: boolean; onClose: ()
     </>
   )
 }
+
 
 function RenameSessionModal({ session, onClose, onDone }: { session: string | null; onClose: () => void; onDone: (oldName: string, newName: string) => void }) {
   const [name, setName] = useState('')
@@ -1846,9 +1873,17 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
   // W7 关闭流程：confirmKill = 普通 Popconfirm 受控打开；closing = worktree 收尾三选一弹窗
   const [confirmKill, setConfirmKill] = useState<string | null>(null)
   const [closing, setClosing] = useState<{ name: string; st: any } | null>(null)
+  // 派生子会话（fork）弹窗：值为父会话名
+  const [forking, setForking] = useState<string | null>(null)
   const { message, modal } = AntApp.useApp()
   const { t } = useI18n()
-  const load = () => api('GET', '/sessions').then(setList).catch(() => {})
+  // tree=1：拿 parent 投影树后拍平（节点字段与平铺一致 + parent），W2 父子分组用
+  const load = () => api('GET', '/sessions?tree=1').then((roots) => {
+    const flat: any[] = []
+    const walk = (nodes: any[]) => { for (const n of nodes || []) { flat.push(n); walk(n.children) } }
+    walk(Array.isArray(roots) ? roots : [])
+    setList(flat)
+  }).catch(() => {})
   useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t) }, [])
   useEffect(() => {
     let stop = false
@@ -2024,8 +2059,27 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
     if (rc.status === 'cleaned') continue
     for (const ct of rc.contestants || []) raceOf[ct.session] = rc
   }
+  // 父子树（设计 §2.2）：parent 是显式强关系（fork 意图），分组优先级 竞赛 > 父子树 > 仓库
+  const alive = new Set(sorted.map((s: any) => s.name))
+  const byName: Record<string, any> = {}
+  for (const s of sorted) byName[s.name] = s
+  const kidsOf: Record<string, any[]> = {}
+  for (const s of sorted) {
+    if (raceOf[s.name]) continue
+    if (s.parent && alive.has(s.parent) && !raceOf[s.parent]) (kidsOf[s.parent] ||= []).push(s)
+  }
+  const famRootOf = (s: any) => {
+    let cur = s
+    const seen = new Set<string>([s.name])
+    while (cur.parent && alive.has(cur.parent) && !raceOf[cur.parent] && !seen.has(cur.parent)) {
+      seen.add(cur.parent); cur = byName[cur.parent]
+    }
+    return cur
+  }
+  const famInvolved = (s: any) => !raceOf[s.name] &&
+    ((kidsOf[s.name]?.length || 0) > 0 || (s.parent && alive.has(s.parent) && !raceOf[s.parent]))
   const groupCounts: Record<string, number> = {}
-  for (const s of sorted) { const r = repoOf(s.name); if (r && !raceOf[s.name]) groupCounts[r] = (groupCounts[r] || 0) + 1 }
+  for (const s of sorted) { const r = repoOf(s.name); if (r && !raceOf[s.name] && !famInvolved(s)) groupCounts[r] = (groupCounts[r] || 0) + 1 }
   const entries: any[] = []
   {
     const consumed = new Set<string>()
@@ -2041,9 +2095,26 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
         if (!wtCollapsed[key]) members.forEach((m: any) => entries.push({ kind: 'sess', s: m, indent: true, race: true }))
         continue
       }
+      if (famInvolved(s)) {
+        // 父子树：根行照常，子孙 DFS 缩进（⑂ 紫色导线）
+        const root = famRootOf(s)
+        if (consumed.has(root.name)) continue
+        consumed.add(root.name)
+        entries.push({ kind: 'sess', s: root, indent: false })
+        const dfs = (parent: string, depth: number) => {
+          for (const kid of kidsOf[parent] || []) {
+            if (consumed.has(kid.name)) continue
+            consumed.add(kid.name)
+            entries.push({ kind: 'sess', s: kid, indent: true, fam: true, depth })
+            dfs(kid.name, depth + 1)
+          }
+        }
+        dfs(root.name, 1)
+        continue
+      }
       const r = repoOf(s.name)
       if (r && groupCounts[r] >= 2) {
-        const members = sorted.filter((x: any) => repoOf(x.name) === r && !raceOf[x.name])
+        const members = sorted.filter((x: any) => repoOf(x.name) === r && !raceOf[x.name] && !famInvolved(x))
         members.forEach((m: any) => consumed.add(m.name))
         entries.push({ kind: 'group', repo: r, count: members.length })
         if (!wtCollapsed[r]) members.forEach((m: any) => entries.push({ kind: 'sess', s: m, indent: true }))
@@ -2058,7 +2129,9 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
     <Card
       title={<Space size={8}>{t('nav.sessions')}<Tag style={{ margin: 0 }}>{cnt('all')}</Tag></Space>}
       extra={<Space size={8}>
-        <Button onClick={() => { setWtDir(undefined); setWtOpen(true) }}>{t('worktree.entry')}</Button>
+        <Tooltip title={t('worktree.entryTip')}>
+          <Button onClick={() => { setWtDir(undefined); setWtOpen(true) }}>{t('worktree.entry')}</Button>
+        </Tooltip>
         {/* 新建下拉(W5 入口)：主点 = 新建会话；菜单 = 新建竞赛 */}
         <Dropdown.Button type="primary" onClick={() => setNewOpen(true)}
           menu={{ items: [{ key: 'race', label: t('race.new') }], onClick: () => setRaceOpen(true) }}>
@@ -2155,8 +2228,8 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
                 // 整行点击直接进入终端；右侧操作区 stopPropagation 不触发进入
                 <List.Item style={{
                   position: 'relative', overflow: 'hidden',
-                  marginLeft: indent ? 14 : 0,
-                  borderLeft: indent ? (en.race ? '2px solid rgba(212,160,23,.35)' : '2px solid rgba(57,197,207,.3)') : undefined,
+                  marginLeft: indent ? 14 * (en.depth || 1) : 0,
+                  borderLeft: indent ? (en.race ? '2px solid rgba(212,160,23,.35)' : en.fam ? '2px solid rgba(163,113,247,.4)' : '2px solid rgba(57,197,207,.3)') : undefined,
                   padding: '10px 8px 10px 12px', cursor: 'pointer', borderRadius: indent ? '0 8px 8px 0' : 8,
                   background: activeRow ? 'linear-gradient(90deg, rgba(31,111,235,.38), rgba(31,111,235,.16))' : undefined,
                   border: activeRow ? '1px solid #58a6ff' : '1px solid transparent',
@@ -2168,6 +2241,7 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
                       <i title={waiting ? t('prompt.confirmRequired') : connected ? t('terminal.status.connected') : t('terminal.status.idle')} style={{ width: 8, height: 8, borderRadius: '50%', flex: '0 0 8px', background: waiting ? '#d29922' : connected ? '#3fb950' : 'var(--text-dimmer)' }} />
                       <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
+                          {en.fam && <Tooltip title={t('session.fork.childOf', { parent: s.parent })}><span style={{ color: '#a371f7', flex: '0 0 auto', fontSize: 13 }}>⑂</span></Tooltip>}
                           <span style={{ fontWeight: 700, color: activeRow ? '#fff' : 'var(--text-bright)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.name}>{s.name}</span>
                           {(() => { // worktree 归属：⎇ 分支紧跟会话名(设计 W2)；外部 worktree 加 ⧉ 标识；手机端只显图标
                             const ann = wtAnn[s.name]
@@ -2199,6 +2273,7 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
                       </div>
                     </div>
                     <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 14, alignItems: 'center', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
+                      {!sw && screens.md && <a onClick={() => setForking(s.name)}>{t('session.fork.entry')}</a>}
                       {sw && <a onClick={() => goSwarm(sw.swarm)}>{t('session.swarmPage')}</a>}
                       {sw ? (
                         <Popconfirm
@@ -2223,7 +2298,8 @@ function Sessions({ openTerm, closeTerm, activeTerm }: { openTerm: (n: string) =
               )
             }} />
           )}
-      <NewSessionModal open={newOpen} onClose={() => setNewOpen(false)} onDone={(name) => { load(); openTerm(name) }} />
+      <NewSessionModal open={newOpen || !!forking} parent={forking}
+        onClose={() => { setNewOpen(false); setForking(null) }} onDone={(name) => { load(); openTerm(name) }} />
       <CloseWorktreeModal info={closing} onClose={() => setClosing(null)} onDone={(name) => { closeTerm(name); load() }} />
       <Suspense fallback={null}>
         <WorktreePanel open={wtOpen} onClose={() => { setWtOpen(false); setWtDir(undefined) }} openTerm={openTerm} initialDir={wtDir} />
