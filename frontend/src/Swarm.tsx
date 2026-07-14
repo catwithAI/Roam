@@ -197,6 +197,15 @@ export function NewSwarmModal({ open, onClose, onDone, initialDir, lockDir }: {
         message.success(t('swarm.uploaded', { count: r.saved.length, dir: r.dir }))
         if (master) await api('POST', `/swarms/${encodeURIComponent(name.trim())}/adopt`, { dir: dir.trim(), roster, worktree })
       }
+      // 班子建议同步建看板卡（09 S2）：每个建议角色一张待办卡，指挥上板即见；
+      // 仍不建成员——组建谁、怎么派活的决定权在指挥。建卡失败不阻塞建群。
+      for (const key of roster) {
+        const label = subroles.find((r) => r.key === key)?.label || key
+        await api('POST', `/swarms/${encodeURIComponent(name.trim())}/task`, {
+          title: t('swarm.rosterCardTitle', { role: label }),
+          desc: t('swarm.rosterCardDesc'),
+        }).catch(() => {})
+      }
       if (dir.trim()) pushRecentDir(dir.trim())
       message.success(master ? t('swarm.createdWithMaster') : t('swarm.created'))
       onClose(); onDone(name.trim())

@@ -517,7 +517,7 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
             const st = await api('GET', `/swarms/${encodeURIComponent(sw.name)}`)
             const members = (st?.members || []) as any[]
             const inProj = members.filter((m: any) => names.has(m.session)).length + (st?.supervisor && names.has(st.supervisor) ? 1 : 0)
-            if (inProj > 0) out.push({ ...sw, inProj, roster: members.length + (st?.supervisor ? 1 : 0) })
+            if (inProj > 0) out.push({ ...sw, inProj, roster: members.length + (st?.supervisor ? 1 : 0), supervisor: st?.supervisor || '' })
           } catch {}
         }))
         if (!stop) setSwarms(out.sort((a, b) => String(a.name).localeCompare(String(b.name))))
@@ -905,7 +905,17 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
                 <b>{sw.name}</b>
                 {sw.goal && <span style={{ fontSize: 12, color: 'var(--text-dimmer)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>{sw.goal}</span>}
                 <span style={{ fontSize: 12, color: 'var(--text-dimmer)' }}>{t('project.swarm.members', { mine: sw.inProj, total: sw.roster })}</span>
+                {!sw.supervisor && <Tag color="warning" style={{ margin: 0 }}>{t('project.swarm.noLeader')}</Tag>}
                 <span style={{ flex: 1 }} />
+                {/* 无指挥修复入口（09 S2）：群在指挥不在（拉起失败/被杀）→ adopt 接管 */}
+                {!sw.supervisor && (
+                  <Button size="small" onClick={async () => {
+                    try {
+                      await api('POST', `/swarms/${encodeURIComponent(sw.name)}/adopt`, { dir, worktree: true })
+                      message.success(t('project.swarm.adopted')); openTerm('cc-' + sw.name)
+                    } catch (e: any) { message.error(e.message) }
+                  }}>{t('project.swarm.adopt')}</Button>
+                )}
                 <Button size="small" onClick={() => { location.hash = '#/swarm/' + encodeURIComponent(sw.name) }}>{t('project.swarm.board')} →</Button>
               </div>
             </div>

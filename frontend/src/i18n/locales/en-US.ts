@@ -1114,6 +1114,11 @@ const enUS = {
   'project.finish.discarded': 'Discarded and removed',
   'project.act.traceMerged': 'Trace: ⎇{branch} merged into {base} ({strategy})',
   'project.act.traceDiscarded': 'Trace: ⎇{branch} discarded',
+  'swarm.rosterCardTitle': 'Recruit {role} and assign work',
+  'swarm.rosterCardDesc': 'From the roster suggested at project kickoff — trim or extend per dev-roles',
+  'project.swarm.noLeader': 'No leader',
+  'project.swarm.adopt': 'Adopt leader',
+  'project.swarm.adopted': 'Leader adopted',
 }
 
 export default enUS

@@ -1114,6 +1114,11 @@ const zhCN = {
   'project.finish.discarded': '已丢弃并删除',
   'project.act.traceMerged': '收尾留痕: ⎇{branch} 已合并回 {base}（{strategy}）',
   'project.act.traceDiscarded': '收尾留痕: ⎇{branch} 已丢弃删除',
+  'swarm.rosterCardTitle': '组建 {role} 并派活',
+  'swarm.rosterCardDesc': '来自项目页发起时的班子建议 —— 按 dev-roles 判断取舍，可增可减',
+  'project.swarm.noLeader': '无指挥',
+  'project.swarm.adopt': '拉起指挥',
+  'project.swarm.adopted': '指挥已拉起',
 }
 
 export default zhCN
