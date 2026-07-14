@@ -17,7 +17,7 @@
 
 <div class="stage">
   <!-- 桌面 -->
-  <div class="app-frame" style="height:820px">
+  <div class="app-frame" style="height:920px">
     <div class="sider">
       <div class="brand">Roam</div>
       <div class="nav-item">◎ 概览</div>
@@ -59,15 +59,15 @@
 
         <!-- Tabs -->
         <div class="ptabs">
-          <span class="pt on" data-t="tasks">任务 <span class="n">6</span></span>
+          <span class="pt on" data-t="tasks">任务 <span class="n">8</span></span>
           <span class="pt" data-t="wt">Worktree <span class="n">5</span></span>
-          <span class="pt" data-t="race">竞赛 <span class="n">1</span></span>
+          <span class="pt" data-t="race">编队 <span class="n">2</span></span>
           <span class="pt" data-t="act">活动</span>
         </div>
 
         <!-- ── 任务流 ── -->
         <div class="pane" id="pane-tasks">
-          <div class="sect"><span class="tri">▾</span><b>进行中</b><span class="cnt">4</span><span class="ln"></span></div>
+          <div class="sect"><span class="tri">▾</span><b>进行中</b><span class="cnt">6</span><span class="ln"></span></div>
 
           <div class="task-row">
             <i class="dot g"></i>
@@ -113,6 +113,27 @@
             <div class="acts"><a>进入</a><a class="close">关闭</a></div>
           </div>
 
+          <!-- 蜂群编队组（投影自 swarm.db，组头 → 蜂群页） -->
+          <div class="group-head" style="margin-top:4px"><span class="tri">▾</span><span style="color:var(--purple)">⬡</span><span class="repo">蜂群 dark-ui</span><span class="tag purple" style="height:18px;font-size:11px">成员 2/3</span><span class="hint">另 1 成员在 api-server</span><a>蜂群台</a></div>
+          <div class="group-body" style="border-left-color:rgba(163,113,247,.3)">
+            <div class="task-row">
+              <i class="dot g"></i>
+              <div class="col">
+                <div class="line1"><span class="name">dark-ui-leader</span><span class="tag purple">指挥</span><span class="tag blue">Claude</span></div>
+                <div class="meta"><span class="lifec"><i class="s1"></i><i class="s2 cur"></i><i></i><i></i></span><span class="lstage">巡检中</span><span>活动 刚刚</span></div>
+              </div>
+              <div class="acts"><a>进入</a></div>
+            </div>
+            <div class="task-row">
+              <i class="dot g"></i>
+              <div class="col">
+                <div class="line1"><span class="name">dark-ui-w1</span><span class="tag cyan">⎇ dark-ui-w1</span><span class="tag green">Codex</span></div>
+                <div class="meta"><span class="lifec"><i class="s1"></i><i class="s2 cur"></i><i></i><i></i></span><span class="lstage">干活中</span><span><span class="stat-b">↑1</span> · 改动 <span class="stat-y">2</span></span><span>活动 1分钟前</span></div>
+              </div>
+              <div class="acts"><a>进入</a><a>对比</a></div>
+            </div>
+          </div>
+
           <div class="sect warn"><span class="tri">▾</span><b>待收尾</b><span class="cnt">1</span><span class="ln"></span></div>
           <div class="task-row unfin">
             <i class="dot idle" style="box-shadow:0 0 0 3px rgba(210,153,34,.15);background:var(--yellow)"></i>
@@ -140,26 +161,41 @@
         <!-- ── Worktree tab（原 W4 语义，仓库内视角）── -->
         <div class="pane" id="pane-wt" style="display:none">
           <div class="card" style="margin-top:6px">
-            <div class="wt-row">
-              <div class="r1"><span class="branch">fix-login</span><span class="tag green">活会话 fix-login</span></div>
-              <div class="r2"><span>基于 <b>main</b></span>·<span class="hot-b">↑2</span>·<span class="hot-y">改动 3</span>·<span>2小时前</span></div>
-              <div class="r3"><span class="btn sm">进入会话</span><span class="btn sm">对比 base</span><span class="btn sm">合并回 main ▾</span><span class="btn sm danger">删除</span></div>
+            <div class="wt-row open">
+              <div class="r1"><span class="tri" style="transform:rotate(90deg)">▸</span><span class="branch">fix-login</span><span class="tag green">命令行 ×2</span></div>
+              <div class="r2" style="margin-left:20px"><span>基于 <b>main</b></span>·<span class="hot-b">↑2</span>·<span class="hot-y">改动 3</span>·<span>2小时前</span></div>
+              <div class="wt-sess-list">
+                <div class="wt-sess">
+                  <i class="dot g"></i><span class="nm">fix-login</span><span class="tag blue" style="height:17px;font-size:10.5px">Claude</span>
+                  <span class="term-peek"><span class="c">✳</span> Refactoring token refresh…</span>
+                  <span class="meta">2 pane · 刚刚</span>
+                  <span class="acts"><a>进入</a><a>派生</a><a class="close">关闭</a></span>
+                </div>
+                <div class="wt-sess">
+                  <i class="dot idle"></i><span class="nm">fix-login-sh</span><span class="tag ghost" style="height:17px;font-size:10.5px">shell</span>
+                  <span class="term-peek"><span class="p">$</span> go test ./auth/...  ok</span>
+                  <span class="meta">1 pane · 5分钟前</span>
+                  <span class="acts"><a>进入</a><a class="close">关闭</a></span>
+                </div>
+                <div class="add-line">＋ 在此 worktree 新开命令行（shell / Claude / Codex）</div>
+              </div>
+              <div class="r3" style="margin-top:9px"><span class="btn sm">对比 base</span><span class="btn sm">合并回 main ▾</span><span class="btn sm danger" style="opacity:.5" title="仍有 2 个命令行在此目录内">删除</span></div>
             </div>
             <div class="wt-row">
-              <div class="r1"><span class="branch">dark-theme</span><span class="tag yellow">孤儿</span></div>
-              <div class="r2"><span>基于 <b>main</b></span>·<span class="hot-b">↑3</span>·<span class="hot-y">改动 1</span>·<span>昨天</span></div>
-              <div class="r3"><span class="btn sm">新建会话进入</span><span class="btn sm">对比 base</span><span class="btn sm danger">删除</span></div>
+              <div class="r1"><span class="tri">▸</span><span class="branch">dark-theme</span><span class="tag yellow">孤儿</span></div>
+              <div class="r2" style="margin-left:20px"><span>基于 <b>main</b></span>·<span class="hot-b">↑3</span>·<span class="hot-y">改动 1</span>·<span>昨天</span></div>
+              <div class="r3"><span class="btn sm">复活：新开命令行</span><span class="btn sm" style="color:var(--yellow)">收尾…</span><span class="btn sm">对比 base</span></div>
             </div>
             <div class="wt-row">
-              <div class="r1"><span class="branch">hotfix-x</span><span class="tag ghost">⧉ 外部 · base ?</span></div>
-              <div class="r2"><span>基于 <b>?</b></span>·<span>改动 0</span>·<span>30分钟前</span></div>
-              <div class="r3"><span class="btn sm">新建会话进入</span><span class="btn sm">对比(选基准)</span><span class="btn sm danger">删除</span></div>
+              <div class="r1"><span class="tri">▸</span><span class="branch">hotfix-x</span><span class="tag ghost">⧉ 外部 · base ?</span></div>
+              <div class="r2" style="margin-left:20px"><span>基于 <b>?</b></span>·<span>改动 0</span>·<span>30分钟前</span></div>
+              <div class="r3"><span class="btn sm">收编：新开命令行</span><span class="btn sm">对比(选基准)</span><span class="btn sm danger">删除</span></div>
             </div>
           </div>
-          <div style="display:flex;gap:8px;margin-top:10px"><span class="btn sm">＋ 新建 worktree(指定分支)</span><span class="btn sm">清理残留</span><span class="hint" style="align-self:center">跨仓库总览 → P1 / 原 W4</span></div>
+          <div style="display:flex;gap:8px;margin-top:10px"><span class="btn sm">＋ 新建 worktree(指定分支)</span><span class="btn sm">清理残留</span><span class="hint" style="align-self:center">展开/命令行/停靠终端联动全交互 → P4；跨仓库总览 → P1</span></div>
         </div>
 
-        <!-- ── 竞赛 tab ── -->
+        <!-- ── 编队 tab（竞赛 + 蜂群，均为只读投影） ── -->
         <div class="pane" id="pane-race" style="display:none">
           <div class="card" style="margin-top:6px;padding:13px 16px">
             <div style="display:flex;align-items:center;gap:8px">
@@ -168,7 +204,14 @@
             </div>
             <div class="hint" style="margin-top:8px">a: Claude <span style="color:var(--blue)">↑3</span> · b: Codex <span style="color:var(--blue)">↑1</span> —— 选赢家/清理在对比台（W6）完成</div>
           </div>
-          <div style="margin-top:10px"><span class="btn sm">＋ 新建竞赛…</span></div>
+          <div class="card" style="margin-top:10px;padding:13px 16px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="tag purple">⬡ 蜂群</span><b>dark-ui</b><span class="hint">成员 2/3 在本项目 · 1小时前开工</span>
+              <span style="flex:1"></span><span class="btn sm">蜂群台 →</span>
+            </div>
+            <div class="hint" style="margin-top:8px">指挥 dark-ui-leader（巡检中）· dark-ui-w1 <span style="color:var(--blue)">↑1</span> · 另 1 成员在 api-server —— 编排/验收在蜂群页完成，此处只是项目视角投影</div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px"><span class="btn sm">＋ 新建竞赛…</span><span class="btn sm">＋ 新建蜂群…</span></div>
         </div>
 
         <!-- ── 活动 tab ── -->
@@ -237,7 +280,7 @@
 </div>
 
 <div class="spec-note" style="border-top:1px solid var(--border-subtle)">
-  规则：① composer 提交 = <code>POST /worktree-sessions</code>（「主仓库」档 = <code>POST /sessions</code>，「已有」档指向既有 worktree）；base 缺省本地主干（W1 修订 5），名称从需求派生（修订 3），占位分支 = 会话名 slug、agent 开工自改名（修订 4）；② 任务流分组优先级沿用 W2：竞赛 &gt; parent 树（⑂ 紫导线缩进） &gt; 平铺；③ 生命周期导轨 4 段 = 建(cyan)→干(green)→审(yellow)→并(purple)，当前段呼吸闪烁，「审」= 有未合并提交或待输入；④ 「收尾」→ P3 抽屉；「复活会话」= 已有 worktree 档新建会话进入；⑤ 「派生」= 现有 fork 表单（07 F 期），parent 固定；⑥ Worktree tab 为仓库内视角（原 W4 语义全保留），竞赛 tab 只列组、动作去 W6；⑦ 5s 轮询 + service 缓存，同 W4。
+  规则：① composer 提交 = <code>POST /worktree-sessions</code>（「主仓库」档 = <code>POST /sessions</code>，「已有」档指向既有 worktree）；base 缺省本地主干（W1 修订 5），名称从需求派生（修订 3），占位分支 = 会话名 slug、agent 开工自改名（修订 4）；② 任务流分组优先级：竞赛 &gt; 蜂群 &gt; parent 树（⑂ 紫导线缩进） &gt; 平铺——蜂群成员按 ⬡ 编队组头聚合（组头 → 蜂群页），跨仓库蜂群只列本仓库成员并标「成员 n/N」，业务归属真相仍在 swarm.db，任务流只是投影；③ 生命周期导轨 4 段 = 建(cyan)→干(green)→审(yellow)→并(purple)，当前段呼吸闪烁，「审」= 有未合并提交或待输入；④ 「收尾」→ P3 抽屉；「复活会话」= 已有 worktree 档新建会话进入；⑤ 「派生」= 现有 fork 表单（07 F 期），parent 固定；⑥ Worktree tab 为仓库内视角（原 W4 语义全保留），编队 tab 汇总竞赛+蜂群、只列组不做编排（动作去 W6/蜂群页）；⑦ 5s 轮询 + service 缓存，同 W4。
 </div>
 
 <script>

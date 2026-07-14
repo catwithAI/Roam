@@ -206,3 +206,62 @@
   display: grid; place-items: center; font-size: 12px; color: #fff;
   background: linear-gradient(180deg, #2a7aef, var(--blue-deep));
 }
+
+/* ── Worktree × 命令行（P4）─────────────────────────────── */
+.wt-row .tri {
+  font-size: 10px; color: var(--text-dimmer); width: 12px; flex: 0 0 12px;
+  display: inline-block; transition: transform .15s; cursor: pointer;
+}
+.wt-row.open > .r1 .tri { transform: rotate(90deg); }
+.wt-sess-list {
+  margin: 6px 0 2px 5px; padding-left: 12px;
+  border-left: 2px solid rgba(57, 197, 207, .25);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.wt-sess {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; border-radius: 8px; cursor: pointer;
+  transition: background .14s;
+}
+.wt-sess:hover { background: rgba(177, 186, 196, .05); }
+.wt-sess:hover .acts { opacity: 1; }
+.wt-sess.active {
+  background: linear-gradient(90deg, rgba(31, 111, 235, .3), rgba(31, 111, 235, .1));
+  box-shadow: 0 0 0 1px rgba(88, 166, 255, .35);
+}
+.wt-sess .nm { font-weight: 600; font-size: 13px; white-space: nowrap; }
+.wt-sess .meta { color: var(--text-dimmer); font-size: 11.5px; white-space: nowrap; }
+.wt-sess .acts { margin-left: auto; display: flex; gap: 10px; font-size: 12px; flex: 0 0 auto; opacity: .7; transition: opacity .14s; }
+.term-peek {
+  flex: 1; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 11px; color: var(--text-dimmer);
+  background: rgba(1, 4, 9, .55); border: 1px solid var(--border-subtle);
+  border-radius: 6px; padding: 3px 8px;
+}
+.term-peek .p { color: #7ee787; }
+.term-peek .c { color: #79c0ff; }
+.amb { color: var(--yellow); font-size: 11.5px; cursor: help; }
+.add-line {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; margin-top: 2px;
+  border: 1px dashed var(--border); border-radius: 8px;
+  color: var(--text-dim); font-size: 12.5px; cursor: pointer; position: relative;
+  transition: border-color .15s, color .15s;
+}
+.add-line:hover { border-color: #8b949e; color: var(--text-bright); }
+.menu {
+  position: absolute; left: 6px; top: calc(100% + 4px); z-index: 7; min-width: 210px;
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .55); padding: 5px;
+}
+.menu .mi {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: 7px; font-size: 12.5px; cursor: pointer;
+  color: var(--text-bright); transition: background .14s;
+}
+.menu .mi:hover { background: rgba(177, 186, 196, .07); }
+.menu .mi .d { color: var(--text-dimmer); font-size: 11px; margin-left: auto; }
+.dock {
+  width: 420px; flex: 0 0 420px; display: flex; flex-direction: column;
+  border-left: 1px solid var(--border-subtle); background: var(--bg-container);
+}
