@@ -1119,6 +1119,14 @@ const enUS = {
   'project.swarm.noLeader': 'No leader',
   'project.swarm.adopt': 'Adopt leader',
   'project.swarm.adopted': 'Leader adopted',
+  'project.swarm.leaderTag': 'Leader',
+  'project.swarm.integrate': 'done ✓ to integrate',
+  'project.swarm.crossProj': 'in another project',
+  'project.swarm.sayLeader': 'Message leader',
+  'project.swarm.sayTitle': 'Message the leader of {name}',
+  'project.swarm.sayPlaceholder': 'Message to the leader (posted to the plaza as human, @leader has top priority)…',
+  'project.swarm.saySend': 'Post',
+  'project.swarm.saySent': 'Posted to the plaza (@leader)',
 }
 
 export default enUS

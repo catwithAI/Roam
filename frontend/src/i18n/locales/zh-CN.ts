@@ -1119,6 +1119,14 @@ const zhCN = {
   'project.swarm.noLeader': '无指挥',
   'project.swarm.adopt': '拉起指挥',
   'project.swarm.adopted': '指挥已拉起',
+  'project.swarm.leaderTag': '指挥',
+  'project.swarm.integrate': 'done ✓ 待集成',
+  'project.swarm.crossProj': '在其他项目',
+  'project.swarm.sayLeader': '给指挥发话',
+  'project.swarm.sayTitle': '给 {name} 的指挥发话',
+  'project.swarm.sayPlaceholder': '写给指挥的话（广场署名 human，@leader 最高优先级）…',
+  'project.swarm.saySend': '发到广场',
+  'project.swarm.saySent': '已发到广场（@指挥）',
 }
 
 export default zhCN

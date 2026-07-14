@@ -418,6 +418,9 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
   const [swarmOpen, setSwarmOpen] = useState(false)
   const [activity, setActivity] = useState<any[]>([])
   const [finishing, setFinishing] = useState<any>(null)
+  const [swarmExtras, setSwarmExtras] = useState<Record<string, { cols: Record<string, number>; last?: any }>>({})
+  const [saying, setSaying] = useState<string>('') // 给指挥发话的目标蜂群名
+  const [sayText, setSayText] = useState('')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [peeks, setPeeks] = useState<Record<string, string>>({})
   const [creating, setCreating] = useState(false)
@@ -479,6 +482,28 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
     const i = setInterval(loadRaces, 8000)
     return () => { stop = true; clearInterval(i) }
   }, [dir, isGit])
+  // 编队 tab 才拉的重数据（P5 帧一）：看板列计数 + 广场最后一条（15s）
+  useEffect(() => {
+    if (tab !== 'race' || !swarms.length) return
+    let stop = false
+    const loadExtras = () => swarms.forEach(async (sw: any) => {
+      try {
+        const [board, feed] = await Promise.all([
+          api('GET', `/swarms/${encodeURIComponent(sw.name)}/board`).catch(() => []),
+          api('GET', `/swarms/${encodeURIComponent(sw.name)}/feed?n=1`).catch(() => []),
+        ])
+        if (stop) return
+        const cols: Record<string, number> = {}
+        for (const c of (Array.isArray(board) ? board : [])) cols[c.col] = (cols[c.col] || 0) + 1
+        const posts = Array.isArray(feed) ? feed : []
+        setSwarmExtras((m) => ({ ...m, [sw.name]: { cols, last: posts[posts.length - 1] } }))
+      } catch {}
+    })
+    loadExtras()
+    const i = setInterval(loadExtras, 15000)
+    return () => { stop = true; clearInterval(i) }
+  }, [tab, swarms])
+
   // 活动流（懒加载：切到活动 tab 才拉，60s 后端缓存）
   useEffect(() => {
     if (tab !== 'act' || !proj) return
@@ -517,7 +542,7 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
             const st = await api('GET', `/swarms/${encodeURIComponent(sw.name)}`)
             const members = (st?.members || []) as any[]
             const inProj = members.filter((m: any) => names.has(m.session)).length + (st?.supervisor && names.has(st.supervisor) ? 1 : 0)
-            if (inProj > 0) out.push({ ...sw, inProj, roster: members.length + (st?.supervisor ? 1 : 0), supervisor: st?.supervisor || '' })
+            if (inProj > 0) out.push({ ...sw, inProj, roster: members.length + (st?.supervisor ? 1 : 0), supervisor: st?.supervisor || '', members })
           } catch {}
         }))
         if (!stop) setSwarms(out.sort((a, b) => String(a.name).localeCompare(String(b.name))))
@@ -551,6 +576,18 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
     const i = setInterval(peek, 5000)
     return () => { stop = true; clearInterval(i) }
   }, [wts, expanded])
+
+  // session → 蜂群成员映射（任务流 ⬡ 分组 + 成员标签的数据源）
+  const swarmMap = useMemo(() => {
+    const m: Record<string, { swarm: string; role: string; subrole?: string; done?: boolean }> = {}
+    for (const sw of swarms) {
+      if (sw.supervisor) m[sw.supervisor] = { swarm: sw.name, role: 'leader' }
+      for (const mem of (sw.members || [])) {
+        if (mem.session) m[mem.session] = { swarm: sw.name, role: mem.role === 'leader' || mem.role === 'master' ? 'leader' : 'member', subrole: mem.subrole, done: !!mem.done }
+      }
+    }
+    return m
+  }, [swarms])
 
   const orphans = useMemo(() => wts.filter((w: any) => !w.external && !(w.sessions?.length)), [wts])
   const unfinished = orphans.filter((w: any) => w.committedAhead > 0 || w.dirty > 0 || w.untracked > 0)
@@ -672,6 +709,9 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
             <span style={{ fontWeight: 700 }}>{s.name}</span>
             {hit.linked && hit.branch && <Tag color="cyan" className="prj-mono" style={{ margin: 0, fontSize: 11 }}>⎇ {hit.branch}</Tag>}
             {hit.external && hit.linked && <Tag style={{ margin: 0 }}>⧉</Tag>}
+            {swarmMap[s.name]?.role === 'leader' && <Tag color="purple" style={{ margin: 0 }}>{t('project.swarm.leaderTag')}</Tag>}
+            {swarmMap[s.name]?.subrole && <Tag style={{ margin: 0 }}>{t(('swarm.subrole.' + swarmMap[s.name]!.subrole) as any) || swarmMap[s.name]!.subrole}</Tag>}
+            {swarmMap[s.name]?.done && <Tag color="purple" style={{ margin: 0 }}>{t('project.swarm.integrate')}</Tag>}
             {cc[s.name] && <Tag color="blue" style={{ margin: 0 }}>Claude</Tag>}
             {cx[s.name] && <Tag color="green" style={{ margin: 0 }}>Codex</Tag>}
             {waiting && <Tag color="warning" style={{ margin: 0 }}>{t('session.waiting')}</Tag>}
@@ -772,7 +812,38 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
         {/* ── 任务流 ── */}
         {tab === 'tasks' && (<>
           {sect(t('project.section.active'), mine.length)}
-          {mine.map(row)}
+          {/* 分组优先级 蜂群 ⬡ > parent 树 > 平铺（08 §2.2）：成员按编队组头聚合，组头 → 蜂群台 */}
+          {(() => {
+            const groups = new Map<string, any[]>()
+            const rest: any[] = []
+            for (const s of mine) {
+              const sm = swarmMap[s.name]
+              if (sm) {
+                if (!groups.has(sm.swarm)) groups.set(sm.swarm, [])
+                groups.get(sm.swarm)!.push(s)
+              } else rest.push(s)
+            }
+            return (<>
+              {[...groups.entries()].map(([swName, rows]) => {
+                const sw = swarms.find((x: any) => x.name === swName)
+                return (
+                  <div key={'g' + swName}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 6px 2px', fontSize: 12.5, color: 'var(--text-dim)' }}>
+                      <span style={{ color: '#a371f7' }}>⬡</span>
+                      <b style={{ color: 'var(--text-bright)' }}>{swName}</b>
+                      {sw && <span style={{ fontSize: 11.5, color: 'var(--text-dimmer)' }}>{t('project.swarm.members', { mine: sw.inProj, total: sw.roster })}</span>}
+                      <span style={{ flex: 1 }} />
+                      <a style={{ fontSize: 12 }} onClick={() => { location.hash = '#/swarm/' + encodeURIComponent(swName) }}>{t('project.swarm.board')}</a>
+                    </div>
+                    <div style={{ marginLeft: 6, paddingLeft: 10, borderLeft: '2px solid rgba(163,113,247,.3)' }}>
+                      {rows.map(row)}
+                    </div>
+                  </div>
+                )
+              })}
+              {rest.map(row)}
+            </>)
+          })()}
           {mine.length === 0 && <div className="prj-empty">{t('project.noTasks')}</div>}
 
           {unfinished.length > 0 && (<>
@@ -897,29 +968,68 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
               </div>
             </div>
           ))}
-          {/* 蜂群卡（⬡ 编队组投影）：动作只有跳转——编排在蜂群台，项目页是作战地图 */}
-          {swarms.map((sw: any) => (
-            <div key={sw.id || sw.name} className="prj-panel prj-in" style={{ padding: '13px 16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <Tag color="purple" style={{ margin: 0 }}>⬡ {t('nav.swarm')}</Tag>
-                <b>{sw.name}</b>
-                {sw.goal && <span style={{ fontSize: 12, color: 'var(--text-dimmer)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>{sw.goal}</span>}
-                <span style={{ fontSize: 12, color: 'var(--text-dimmer)' }}>{t('project.swarm.members', { mine: sw.inProj, total: sw.roster })}</span>
-                {!sw.supervisor && <Tag color="warning" style={{ margin: 0 }}>{t('project.swarm.noLeader')}</Tag>}
-                <span style={{ flex: 1 }} />
-                {/* 无指挥修复入口（09 S2）：群在指挥不在（拉起失败/被杀）→ adopt 接管 */}
-                {!sw.supervisor && (
-                  <Button size="small" onClick={async () => {
-                    try {
-                      await api('POST', `/swarms/${encodeURIComponent(sw.name)}/adopt`, { dir, worktree: true })
-                      message.success(t('project.swarm.adopted')); openTerm('cc-' + sw.name)
-                    } catch (e: any) { message.error(e.message) }
-                  }}>{t('project.swarm.adopt')}</Button>
+          {/* 蜂群卡（P5 帧一）：成员/看板计数/广场尾声只读投影 + 给指挥发话；编排一律去蜂群台 */}
+          {swarms.map((sw: any) => {
+            const ex = swarmExtras[sw.name]
+            const mineNames = new Set(mine.map((x) => x.name))
+            const memberRow = (session: string, role: string, subrole?: string, done?: boolean, status?: string) => {
+              const inProj = mineNames.has(session)
+              const running = cc[session] || cx[session] || status === 'running'
+              return (
+                <div key={session} className="prj-subrow" style={{ opacity: inProj ? 1 : 0.45 }}
+                  onClick={() => { if (inProj) openTerm(session) }}>
+                  {dot(false, status === 'waiting' ? '#d29922' : running ? '#3fb950' : undefined)}
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{session}</span>
+                  {role === 'leader' && <Tag color="purple" style={{ margin: 0, fontSize: 10.5, lineHeight: '16px' }}>{t('project.swarm.leaderTag')}</Tag>}
+                  {subrole && <Tag style={{ margin: 0, fontSize: 10.5, lineHeight: '16px' }}>{t(('swarm.subrole.' + subrole) as any) || subrole}</Tag>}
+                  {done && <Tag color="purple" style={{ margin: 0, fontSize: 10.5, lineHeight: '16px' }}>{t('project.swarm.integrate')}</Tag>}
+                  {ann[session]?.primary?.linked && <Tag color="cyan" className="prj-mono" style={{ margin: 0, fontSize: 10.5, lineHeight: '16px' }}>⎇ {ann[session].primary.branch}</Tag>}
+                  <span style={{ flex: 1 }} />
+                  {inProj
+                    ? <a style={{ fontSize: 12 }} onClick={(e) => { e.stopPropagation(); openTerm(session) }}>{t('project.enter')}</a>
+                    : <span style={{ fontSize: 11.5, color: 'var(--text-dimmer)' }}>{t('project.swarm.crossProj')}</span>}
+                </div>
+              )
+            }
+            return (
+              <div key={sw.id || sw.name} className="prj-panel prj-in" style={{ padding: '13px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Tag color="purple" style={{ margin: 0 }}>⬡ {t('nav.swarm')}</Tag>
+                  <b>{sw.name}</b>
+                  {sw.goal && <span style={{ fontSize: 12, color: 'var(--text-dimmer)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>{sw.goal}</span>}
+                  {!sw.supervisor && <Tag color="warning" style={{ margin: 0 }}>{t('project.swarm.noLeader')}</Tag>}
+                  <span style={{ flex: 1 }} />
+                  {ex && Object.keys(ex.cols).length > 0 && (
+                    <span className="prj-mono" style={{ fontSize: 11, color: 'var(--text-dimmer)' }}>
+                      {['backlog', 'assigned', 'doing', 'review', 'done'].filter((c) => ex.cols[c]).map((c) => `${t(('swarm.board.col.' + c) as any)} ${ex.cols[c]}`).join(' · ')}
+                    </span>
+                  )}
+                  {/* 无指挥修复入口（09 S2）：群在指挥不在（拉起失败/被杀）→ adopt 接管 */}
+                  {!sw.supervisor && (
+                    <Button size="small" onClick={async () => {
+                      try {
+                        await api('POST', `/swarms/${encodeURIComponent(sw.name)}/adopt`, { dir, worktree: true })
+                        message.success(t('project.swarm.adopted')); openTerm('cc-' + sw.name)
+                      } catch (e: any) { message.error(e.message) }
+                    }}>{t('project.swarm.adopt')}</Button>
+                  )}
+                  <Button size="small" onClick={() => { setSaying(sw.name); setSayText('') }}>{t('project.swarm.sayLeader')}</Button>
+                  <Button size="small" type="primary" onClick={() => { location.hash = '#/swarm/' + encodeURIComponent(sw.name) }}>{t('project.swarm.board')} →</Button>
+                </div>
+                <div style={{ margin: '9px 0 0 5px', paddingLeft: 12, borderLeft: '2px solid rgba(163,113,247,.3)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {sw.supervisor && memberRow(sw.supervisor, 'leader')}
+                  {(sw.members || []).filter((m: any) => m.session && m.session !== sw.supervisor)
+                    .map((m: any) => memberRow(m.session, m.role, m.subrole, !!m.done, m.status))}
+                </div>
+                {ex?.last && (
+                  <div className="prj-mono" style={{ display: 'flex', gap: 8, marginTop: 9, padding: '6px 10px', borderRadius: 8, background: 'var(--bg-term)', border: '1px solid var(--border-subtle)', fontSize: 11.5, color: 'var(--text-dim)' }}>
+                    <span style={{ color: '#c4a5f9', flex: '0 0 auto' }}>{ex.last.author}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ex.last.text}</span>
+                  </div>
                 )}
-                <Button size="small" onClick={() => { location.hash = '#/swarm/' + encodeURIComponent(sw.name) }}>{t('project.swarm.board')} →</Button>
               </div>
-            </div>
-          ))}
+            )
+          })}
           {races.length === 0 && swarms.length === 0 && <div className="prj-empty">{t('project.formation.empty')}</div>}
           <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
             <Button size="small" onClick={() => setRaceOpen(true)}>{t('project.newRace')}</Button>
@@ -979,6 +1089,19 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
         <CloseWorktreeModal info={closing} onClose={() => setClosing(null)} onDone={() => { setClosing(null); refresh() }} />
         <FinishModal w={finishing} base={defBranch} onClose={() => setFinishing(null)}
           onDone={() => { setFinishing(null); refresh() }} onRevive={(w) => newCli(w, 'shell')} />
+        {/* 给指挥发话 = 广场署名 human 发言（08 §3），编排动作仍去蜂群台 */}
+        <Modal open={!!saying} onCancel={() => setSaying('')} title={t('project.swarm.sayTitle', { name: saying })}
+          okText={t('project.swarm.saySend')} destroyOnClose
+          onOk={async () => {
+            if (!sayText.trim()) return
+            try {
+              await api('POST', `/swarms/${encodeURIComponent(saying)}/say`, { text: '@leader ' + sayText.trim(), kind: 'ask' })
+              message.success(t('project.swarm.saySent')); setSaying('')
+            } catch (e: any) { message.error(e.message) }
+          }}>
+          <Input.TextArea autoFocus rows={3} value={sayText} onChange={(e) => setSayText(e.target.value)}
+            placeholder={t('project.swarm.sayPlaceholder')} />
+        </Modal>
       </div>
     </div>
   )
