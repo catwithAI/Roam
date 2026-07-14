@@ -495,6 +495,7 @@ func (a *API) FileCopy(c *gin.Context) {
 		return
 	}
 	if err := copyPath(src, dest); err != nil {
+		_ = os.RemoveAll(dest) // 清理复制到一半的目标，避免残留触发 EXISTS 挡住重试
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "COPY_ERROR", "message": err.Error()}})
 		return
 	}
@@ -541,13 +542,33 @@ func (a *API) FileMove(c *gin.Context) {
 		return
 	}
 	if err := os.Rename(src, dest); err != nil {
-		// 跨设备(EXDEV)等 rename 失败时退化为 复制+删除
-		if cerr := copyPath(src, dest); cerr != nil {
+		// 跨设备(EXDEV)等 rename 失败时退化为 复制+删除。
+		// 先把源原子改名到同目录临时名并校验 inode：复制/删除期间源路径若被并发替换，
+		// 直接 copyPath(src)+RemoveAll(src) 会复制/删掉替换对象（TOCTOU）。
+		tmp := fmt.Sprintf("%s.~moving-%d-%d", src, os.Getpid(), time.Now().UnixNano())
+		if err := os.Rename(src, tmp); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "MOVE_ERROR", "message": err.Error()}})
 			return
 		}
-		if rerr := os.RemoveAll(src); rerr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "MOVE_ERROR", "message": rerr.Error()}})
+		if st, err := os.Lstat(tmp); err != nil || !os.SameFile(info, st) {
+			if rerr := os.Rename(tmp, src); rerr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "RESTORE_ERROR", "message": "源被并发修改且还原失败，内容遗留在临时路径: " + tmp}})
+				return
+			}
+			c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "PATH_CHANGED", "message": "源在移动前被并发修改，未移动"}})
+			return
+		}
+		if cerr := copyPath(tmp, dest); cerr != nil {
+			_ = os.RemoveAll(dest) // 清理复制到一半的目标，避免残留触发 EXISTS 挡住重试
+			if rerr := os.Rename(tmp, src); rerr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "RESTORE_ERROR", "message": "复制失败且源还原失败，内容遗留在临时路径: " + tmp}})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "MOVE_ERROR", "message": cerr.Error()}})
+			return
+		}
+		if rerr := os.RemoveAll(tmp); rerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "MOVE_ERROR", "message": "已复制到目标，但源清理失败，内容遗留在临时路径: " + tmp}})
 			return
 		}
 	}
@@ -694,7 +715,11 @@ func (a *API) FileDelete(c *gin.Context) {
 			return
 		}
 		if st, err := os.Lstat(tmp); err != nil || !os.SameFile(info, st) {
-			_ = os.Rename(tmp, p) // 改名到的不是确认过的那个目录，还原现场
+			// 改名到的不是确认过的那个目录，还原现场；还原也失败时如实报告遗留位置
+			if rerr := os.Rename(tmp, p); rerr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "RESTORE_ERROR", "message": "目标被并发修改且还原失败，内容遗留在临时路径: " + tmp}})
+				return
+			}
 			c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "PATH_CHANGED", "message": "目标在删除前被并发修改，未删除"}})
 			return
 		}

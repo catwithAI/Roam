@@ -61,6 +61,34 @@ func TestFileMove(t *testing.T) {
 	}
 }
 
+func TestFileCopyCleanupOnFailure(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root 不受权限限制，无法构造复制失败")
+	}
+	gin.SetMode(gin.TestMode)
+	a := &API{}
+	r := gin.New()
+	r.POST("/file/copy", a.FileCopy)
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	os.MkdirAll(src, 0o755)
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("ok"), 0o644)
+	bad := filepath.Join(src, "b.txt")
+	os.WriteFile(bad, []byte("x"), 0o644)
+	os.Chmod(bad, 0) // 中途读取失败 → 复制半途而废
+	defer os.Chmod(bad, 0o644)
+
+	dest := filepath.Join(dir, "dest")
+	w := postJSON(t, r, "/file/copy", gin.H{"path": src, "target": dest})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("partial dest not cleaned up")
+	}
+}
+
 func TestFileTouch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := &API{}
