@@ -1021,7 +1021,7 @@ const enUS = {
   // ── Projects (08: project = git repo, task-driven) ──
   'project.title': 'Projects',
   'project.allSessions': 'All sessions',
-  'project.newTask': '+ New task',
+  'project.newProject': '+ New project',
   'project.empty': 'No projects yet — open a session inside a git repo and it will appear here',
   'project.race': 'RACE ×{count}',
   'project.unfinished': '{count} to finish',

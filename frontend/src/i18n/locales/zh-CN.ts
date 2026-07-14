@@ -1021,7 +1021,7 @@ const zhCN = {
   // ── 项目页（08：项目=git 仓库，任务驱动）──
   'project.title': '项目',
   'project.allSessions': '全部会话',
-  'project.newTask': '＋ 新任务',
+  'project.newProject': '＋ 新项目',
   'project.empty': '暂无项目——开一个会话进 git 仓库，项目会自动出现',
   'project.race': 'RACE ×{count}',
   'project.unfinished': '{count} 待收尾',

@@ -67,7 +67,7 @@ function ProjectList({ data, loaded, openTerm, refresh }: {
           ]}
           onChange={(v) => { if (v === 'sessions') location.hash = '#/sessions' }} />
         <span style={{ flex: 1 }} />
-        <Button type="primary" size="small" onClick={() => setNewOpen(true)}>{t('project.newTask')}</Button>
+        <Button type="primary" size="small" onClick={() => setNewOpen(true)}>{t('project.newProject')}</Button>
       </div>
 
       {loaded && data.projects.length === 0 && (
