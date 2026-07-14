@@ -566,7 +566,7 @@ func (a *API) FileDownload(c *gin.Context) {
 	})
 }
 
-// FileDelete DELETE /file?path=<file-or-empty-dir> —— 删除文件或空目录。
+// FileDelete DELETE /file?path=<path>[&recursive=1] —— 删除文件或目录；非空目录需 recursive=1。
 func (a *API) FileDelete(c *gin.Context) {
 	p := filepath.Clean(c.Query("path"))
 	if p == "" || !filepath.IsAbs(p) || p == string(filepath.Separator) {
@@ -582,7 +582,8 @@ func (a *API) FileDelete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "FS_ERROR", "message": err.Error()}})
 		return
 	}
-	if info.IsDir() {
+	recursive := c.Query("recursive") == "1"
+	if info.IsDir() && !recursive {
 		entries, err := os.ReadDir(p)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "READ_ERROR", "message": err.Error()}})
@@ -593,7 +594,11 @@ func (a *API) FileDelete(c *gin.Context) {
 			return
 		}
 	}
-	if err := os.Remove(p); err != nil {
+	rm := os.Remove
+	if info.IsDir() && recursive {
+		rm = os.RemoveAll
+	}
+	if err := rm(p); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DELETE_ERROR", "message": err.Error()}})
 		return
 	}

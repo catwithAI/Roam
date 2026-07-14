@@ -220,7 +220,7 @@ const enUS = {
   'file.alreadyMissingRefreshed': 'File no longer exists; refreshed',
   'file.deleted': 'Deleted',
   'file.deleteFailed': 'Delete failed: {message}',
-  'file.deleteEmptyDirConfirm': 'Delete this empty folder?',
+  'file.deleteDirConfirm': 'Delete this folder and all its contents?',
   'file.deleteFileConfirm': 'Delete this file?',
   'file.delete': 'Delete',
   'file.openFolder': 'Open folder',

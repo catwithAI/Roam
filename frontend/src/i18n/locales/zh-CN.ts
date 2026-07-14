@@ -220,7 +220,7 @@ const zhCN = {
   'file.alreadyMissingRefreshed': '文件已不存在，已刷新',
   'file.deleted': '已删除',
   'file.deleteFailed': '删除失败：{message}',
-  'file.deleteEmptyDirConfirm': '删除此空目录？',
+  'file.deleteDirConfirm': '删除此文件夹及其中所有内容？',
   'file.deleteFileConfirm': '删除此文件？',
   'file.delete': '删除',
   'file.openFolder': '打开目录',

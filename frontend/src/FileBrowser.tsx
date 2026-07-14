@@ -415,9 +415,9 @@ export default function FileBrowser({
     } catch (e: any) { message.error(t('file.mkdirFailed', { message: e.message })) }
     finally { setMkdirBusy(false) }
   }
-  const deletePath = async (target: string) => {
+  const deletePath = async (target: string, recursive = false) => {
     try {
-      const res = await api('DELETE', `/file?path=${encodeURIComponent(target)}`)
+      const res = await api('DELETE', `/file?path=${encodeURIComponent(target)}${recursive ? '&recursive=1' : ''}`)
       message.success(res.data?.missing ? t('file.alreadyMissingRefreshed') : t('file.deleted'))
       if (view === target) setView(null)
       refresh()
@@ -428,12 +428,12 @@ export default function FileBrowser({
   }
   const confirmDelete = (target: string, isDir: boolean) => {
     modal.confirm({
-      title: isDir ? t('file.deleteEmptyDirConfirm') : t('file.deleteFileConfirm'),
+      title: isDir ? t('file.deleteDirConfirm') : t('file.deleteFileConfirm'),
       content: target,
       okText: t('file.delete'),
       cancelText: t('common.cancel'),
       okButtonProps: { danger: true },
-      onOk: () => deletePath(target),
+      onOk: () => deletePath(target, isDir),
     })
   }
   const confirmDeleteTarget = (target: FileTarget) => confirmDelete(target.path, target.dir)
