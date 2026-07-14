@@ -109,11 +109,90 @@
 
 收尾留痕：追加写 `<dataDir>/activity.log`（JSONL：`{repoKey, task, branch, headOid, base,
 action: merged|discarded|cleaned, strategy?, shortstat, at}`），只增不改，是活动 tab 的
-第二数据源；不是任务真相源，丢失只损失历史摘要。
+第二数据源；不是任务真相源，丢失只损失历史摘要。实现见 §5。
 
-`repoKey` = canonical common-dir 的 slug（服务端维护映射，避免路径进 URL）。
+## 5. 后端设计
 
-## 5. 边界
+**总原则：Project 是纯读模型层，不新增真相源。** git 写仍独占于 `backend/worktree`
+（07 §2.3 不变），session 写仍薄转发 ttmux CLI；Project Service 只做「发现 + 聚合 +
+两个弱持久化文件」。
+
+### 5.1 落点（现有分层的增量）
+
+```
+backend/
+  worktree/service.go     已有：git 领域服务（repo 锁 / 3s list 缓存 / pane cwd join）
+  api/worktree.go         已有：handler + 组合编排（worktree-sessions / fork / close-with-worktree）
+  api/race.go             已有：RaceStore（<dataDir>/races.json，互斥+整写）+ crown 状态机
+  project/service.go      新增：发现聚合 + knownRepos 台账 + 收尾留痕读写
+  api/project.go          新增：GET /projects、GET /projects/:repoKey、PATCH …/prefs
+  api/worktree.go         扩展：WorktreeFinish（§5.4，与 close-with-worktree 共享步骤 helper）
+```
+
+依赖方向：`api/project.go → project.Service → {worktree.Service, ttmux.Client, RaceStore}`。
+project 包不直接跑 git 子进程——repo 解析、worktree 列表、diff 统计全部经 `worktree.Service`
+（canonical common-dir、flock、缓存因此天然复用）。
+
+### 5.2 数据文件（dataDir，与 races.json 同级、同体例）
+
+| 文件 | 内容 | 写法 |
+|---|---|---|
+| `projects.json` | `{repos: {repoKey: {dir, pinned, displayName?, defaultAgent?, defaultBase?, firstSeen, lastSeen}}}` | 单写者 project.Service；内存互斥 + tmp 文件原子替换（同 RaceStore 体例）|
+| `activity.log` | 收尾留痕 JSONL（§4），只追加 | `O_APPEND` 单行写；超 5MB 轮转为 `.1` 只保一代，读取 = 两代合并按时间倒序、单仓库上限 200 条 |
+
+`repoKey` = 仓库目录名 slug + common-dir 短 hash（如 `ttmux-3f9a`）：可读、稳定、
+不把绝对路径塞进 URL；`repoKey → dir` 映射只存在 projects.json 里，
+**API 只接受台账中已存在的 key**——顺带杜绝任意路径探测。
+
+### 5.3 发现与聚合（GET /projects 的一次请求）
+
+1. `ttmux ls --tree --json` + pane cwd 快照（worktree.Service 已有 join 逻辑，导出复用）；
+   每个命中 git 仓库的 cwd → `ResolveRepo`（canonical）→ **knownRepos 不在册则记入**
+   ——发现是读路径的副作用，无独立注册流程。
+2. 对 knownRepos 全量：`WT.List`（3s 缓存兜底）→ 统计 任务数 / worktree 数 / 待收尾数
+   （孤儿 ∧ committedAhead>0）/ 最近活动（各 worktree HEAD commit 时间的 max）。
+   仓库间 errgroup 并行、并发 ≤4；整个响应再套 5s TTL 缓存（与 W4 轮询节拍一致）。
+3. RaceStore 计数；目录不存在 → §2.1(a) 移出；无 roam worktree ∧ 无会话 ∧ 未置顶 →
+   §2.1(b) 移出——收敛发生在读时，无后台任务。
+4. 排序在服务端定（置顶 > 有 running > 最近活动倒序），前端不重排。
+
+单仓库详情（`GET /projects/:repoKey`）在此之上加：任务投影（§2.2——纯函数
+`tasks(sessions, worktrees, races)`，无状态无持久化）、7 日 spark
+（common-dir 一次 `git log --all --since=7.days --format=%ct`，60s 独立缓存——它比
+worktree 列表变化慢）、活动流（`git log --all --since=30.days` + activity.log 合并，
+60s 缓存）。
+
+生命周期导轨不落后端字段：running/waiting 来自现有 agent 进程探测，「审」=
+committedAhead>0，「并」= merged 判定——前端由既有字段推导，后端不新增状态机。
+
+### 5.4 finish 状态机（api 层组合，不进 worktree.Service）
+
+`SessionCloseWithWorktree` 已实现 keep/merge/discard 的逐段编排（每步失败返回
+`{stage, done}`）。finish = 同一条 merge 链去掉 kill 步 + 前置冻结校验；实现上把
+「wip-commit → merge → remove → 留痕」抽成 api 包内共享 helper，close-with-worktree
+的 merge 档与 finish 都调它——**一份编排两处用，避免语义漂移**。
+
+| 步 | 动作 | 失败语义 |
+|---|---|---|
+| freeze | 校验 expectedHead == source HEAD，此后该值作废 | `HEAD_MOVED`，要求重新确认 |
+| wip | `CommitAll`（无改动则跳过，幂等） | 返回 `{stage: wip}` |
+| merge | `WT.Merge`（**不传 expectedHead**；base 侧 OID 校验、冲突 abort 自恢复均在 Merge 内，07 §2.3） | `{stage: merge, conflictFiles}` |
+| remove | `WT.Remove`（占用检查防与「复活」竞态；delete-branch 按请求） | `{stage: remove}` |
+| 留痕 | activity.log 追加 | 只记 warn，不算失败 |
+
+锁：各步经 worktree.Service 自取 repo flock（07 §2.3），api 层不额外持锁。
+与 crown 不同，**不做 crownDone 式跨请求持久化**：竞赛贵在选手、crown 必须可续跑；
+finish 每步幂等（wip 重试自动跳过、merge 冲突已被内部 abort 恢复、remove 可重试），
+失败把 `{stage, done}` 抛回 P3，用户重试从头走一遍即可，无需状态文件。
+
+### 5.5 开销预算
+
+- 最坏路径 = knownRepos 全量 List：O(R × N) 子进程，被三层缓存（list 3s / 响应 5s /
+  spark·活动 60s）+ 仓库级并发上限压住；P1/P2 轮询 5s 与 W4 同拍，不新增压力档。
+- activity.log 读放大由「轮转 + 单仓库 200 条上限」封顶；留痕只含统计与 OID，
+  **不含 diff 内容**——敏感代码不进日志文件。
+
+## 6. 边界
 
 - 项目退场 = knownRepos 自动收敛，条件见 §2.1：**只看 roam worktree 是否存在，不看干净与否**
   ——clean/已合并但尚未清理的孤儿也让项目在列（「清理」入口就在这），全部 roam worktree
