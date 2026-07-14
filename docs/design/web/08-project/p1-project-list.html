@@ -144,7 +144,7 @@
 </div>
 
 <div class="spec-note" style="border-top:1px solid var(--border-subtle)">
-  规则：① 排序 = 置顶 ★ &gt; 有 running 任务 &gt; 最近活动时间；② 卡片「进行中」最多 2 条，超出「+n」；③ 待收尾计数 = 孤儿 worktree 且 committedAhead&gt;0（07 W4 判定复用），点「收尾」直达 P3；④ 项目无注册/删除——发现走 knownRepos 弱台账（首次会话命中自动记入，projects.json），<b>零会话但有孤儿 worktree 的仓库持续在列</b>；worktree 清空且无会话才自动退场（置顶过的标「无活动」保留）；⑤ 「全部会话」= 现有 W2 平铺视图原样保留；⑥ 「＋ 新任务 ▾」下拉列最近项目 + 「其他目录…」（回落 W1 完整弹窗）。
+  规则：① 排序 = 置顶 ★ &gt; 有 running 任务 &gt; 最近活动时间；② 卡片「进行中」最多 2 条，超出「+n」；③ 待收尾计数 = 孤儿 worktree 且 committedAhead&gt;0（07 W4 判定复用），点「收尾」直达 P3；④ 项目无注册/删除——发现走 knownRepos 弱台账（首次会话命中自动记入，projects.json），<b>只要存在任何 roam worktree（clean/已合并未清理的也算）就持续在列</b>；全部 roam worktree 移除且无会话才自动退场（置顶过的标「无活动」保留）；⑤ 「全部会话」= 现有 W2 平铺视图原样保留；⑥ 「＋ 新任务 ▾」下拉列最近项目 + 「其他目录…」（回落 W1 完整弹窗）。
 </div>
 </body>
 </html>
