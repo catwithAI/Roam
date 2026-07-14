@@ -140,9 +140,10 @@ function ProjectList({ data, loaded, openTerm, refresh }: {
       {loaded && data.projects.length === 0 && (
         <div style={{ color: 'var(--text-dim)', padding: '24px 4px' }}>{t('project.empty')}</div>
       )}
+      <style>{'.prj-card .prj-acts{opacity:.25;transition:opacity .15s}.prj-card:hover .prj-acts{opacity:1}.prj-card .prj-acts .pinned{opacity:1}'}</style>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: 12 }}>
         {data.projects.map((p) => (
-          <div key={p.key} onClick={() => open(p)}
+          <div key={p.key} onClick={() => open(p)} className="prj-card"
             style={{
               background: 'var(--bg-container, rgba(177,186,196,.04))', border: '1px solid var(--border-subtle, #21262d)',
               borderRadius: 12, padding: '13px 14px 11px', cursor: 'pointer',
@@ -152,14 +153,16 @@ function ProjectList({ data, loaded, openTerm, refresh }: {
               <span style={{ fontWeight: 700, fontSize: 14.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>⌂ {p.name}</span>
               {p.races > 0 && <Tag color="gold" style={{ margin: 0 }}>{t('project.race', { count: p.races })}</Tag>}
               <span style={{ flex: 1 }} />
-              <Tooltip title={p.pinned ? t('project.unpin') : t('project.pin')}>
-                <a onClick={(e) => { e.stopPropagation(); pin(p) }}
-                  style={{ color: p.pinned ? 'var(--yellow, #d29922)' : 'var(--text-dimmer)', fontSize: 13 }}>★</a>
-              </Tooltip>
-              <Popconfirm title={t('project.removeConfirm')} onConfirm={() => remove(p)}
-                onPopupClick={(e) => e.stopPropagation()}>
-                <a onClick={(e) => e.stopPropagation()} style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>✕</a>
-              </Popconfirm>
+              <span className="prj-acts" style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
+                <Tooltip title={p.pinned ? t('project.unpin') : t('project.pin')}>
+                  <a className={p.pinned ? 'pinned' : ''} onClick={(e) => { e.stopPropagation(); pin(p) }}
+                    style={{ color: p.pinned ? 'var(--yellow, #d29922)' : 'var(--text-dimmer)', fontSize: 13 }}>★</a>
+                </Tooltip>
+                <Popconfirm title={t('project.removeConfirm')} onConfirm={() => remove(p)}
+                  onPopupClick={(e) => e.stopPropagation()}>
+                  <a onClick={(e) => e.stopPropagation()} style={{ color: 'var(--text-dimmer)', fontSize: 12 }}>✕</a>
+                </Popconfirm>
+              </span>
             </div>
             <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, color: 'var(--text-dimmer)', marginTop: -4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.dir}>{p.dir}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-dim)' }}>
@@ -439,6 +442,8 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
   )
 
   // 任务行：生命周期导轨 = 建(必亮)→干(agent 跑)→审(待输入/有未合并)→并(merged)
+  // 状态点语义收敛（设计 W2）：绿 = agent 正在干活，黄 = 待输入，其余一律灰——
+  // 「已连接」不配绿点，否则满屏绿。
   const row = (s: any) => {
     const a = ann[s.name] || {}
     const hit = a.primary || {}
@@ -454,7 +459,7 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
     return (
       <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 10px', borderRadius: 9, cursor: 'pointer', marginLeft: isChild ? 22 : 0 }}
         onClick={() => openTerm(s.name)}>
-        {dot(Number(s.attached) > 0)}
+        {dot(false, waiting ? 'var(--yellow, #d29922)' : running ? 'var(--green, #3fb950)' : undefined)}
         {isChild && <span style={{ color: 'var(--purple, #a371f7)', fontSize: 12 }}>⑂</span>}
         <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
@@ -503,9 +508,11 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
 
   return (
     <div style={{ height: '100%', overflow: 'auto' }}>
-      {/* 项目头：⌂ 图标块 + 名称 + 路径 · ⎇主干 @ HEAD + [Git 面板][Worktree 管理] */}
+      {/* 项目头：面包屑返回 + ⌂ 图标块 + 名称 + 路径 · ⎇主干 @ HEAD + [Git 面板][Worktree 管理] */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <a onClick={() => { location.hash = '#/projects' }} style={{ color: 'var(--text-dim)', fontSize: 16 }}>‹</a>
+        <Button type="text" size="small" onClick={() => { location.hash = '#/projects' }}
+          style={{ color: 'var(--text-dim)', paddingInline: 6 }}>‹ {t('project.title')}</Button>
+        <span style={{ width: 1, height: 18, background: 'var(--border-subtle, #21262d)' }} />
         <span style={{
           width: 34, height: 34, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: 16,
           background: 'linear-gradient(135deg, rgba(57,197,207,.18), rgba(31,111,235,.16))',
@@ -627,7 +634,7 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
                   {w.external
                     ? <Tag style={{ margin: 0 }}>{t('project.wt.externalTag')}</Tag>
                     : live > 0
-                      ? <Tag color="green" style={{ margin: 0 }}>{t('project.wt.cli', { count: live })}</Tag>
+                      ? <Tag style={{ margin: 0 }}>{t('project.wt.cli', { count: live })}</Tag>
                       : <Tag color="warning" style={{ margin: 0 }}>{t('project.wt.orphanTag')}</Tag>}
                 </div>
                 <div style={{ marginLeft: 20, marginTop: 5, fontSize: 12, color: 'var(--text-dimmer)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -639,11 +646,10 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
                 {open && (
                   <div style={{ margin: '8px 0 2px 5px', paddingLeft: 12, borderLeft: '2px solid rgba(57,197,207,.25)', display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {(w.sessions || []).map((ref: any) => {
-                      const sess = sessions.find((s) => s.name === ref.session)
                       return (
                         <div key={ref.session} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, cursor: 'pointer' }}
                           onClick={() => openTerm(ref.session)}>
-                          {dot(Number(sess?.attached) > 0)}
+                          {dot(false, cc[ref.session] || cx[ref.session] ? 'var(--green, #3fb950)' : undefined)}
                           <span style={{ fontWeight: 600, fontSize: 13 }}>{ref.session}</span>
                           {cc[ref.session] && <Tag color="blue" style={{ margin: 0, fontSize: 10.5, lineHeight: '16px' }}>Claude</Tag>}
                           {cx[ref.session] && <Tag color="green" style={{ margin: 0, fontSize: 10.5, lineHeight: '16px' }}>Codex</Tag>}
@@ -700,8 +706,7 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
         <div style={{ background: 'var(--bg-container, rgba(177,186,196,.03))', border: '1px solid var(--border-subtle, #21262d)', borderRadius: 12, padding: '6px 4px', marginTop: 6 }}>
           {activity.map((e: any) => (
             <div key={e.oid + e.at} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', fontSize: 12.5, fontFamily: 'ui-monospace, monospace' }}>
-              <span style={{ color: 'var(--green, #3fb950)' }}>●</span>
-              <span style={{ color: 'var(--text-dim)' }}>{e.oid}</span>
+              <span style={{ color: 'var(--cyan, #39c5cf)', opacity: 0.8 }}>{e.oid}</span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.subject}</span>
               <span style={{ marginLeft: 'auto', color: 'var(--text-dimmer)', fontSize: 11.5, flex: '0 0 auto' }}>
                 {e.refs ? `${String(e.refs).split(',')[0]} · ` : ''}{relTime(e.at, t)}
