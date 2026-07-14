@@ -93,6 +93,7 @@
 | [P2 项目主页](./08-project/p2-project-home.html) | 核心页：Codex 式 composer（需求 textarea + 在哪干活 pill + Agent pill，⏎ 开干）+ 任务流（生命周期 stepper、parent 树缩进、竞赛组、待收尾/已合并分区）+ Worktree/竞赛/活动 tab |
 | [P3 任务收尾](./08-project/p3-task-finish.html) | 待收尾任务抽屉：损失清单（↑n 未合并 · 改动 n）+ 对比 base 文件列表 + 三选一（合并并删除 / 复活会话 / 丢弃删除），复用 07 W4/W7 的全部安全语义 |
 | [P4 Worktree × 命令行](./08-project/p4-worktree-terminals.html) | 资源视角（P2 Worktree tab 的完整交互）：worktree 行可展开列出全部派生命令行（agent 会话与裸 shell 同列，带终端尾行预览），「＋ 新开命令行」三选，进入 → 停靠终端 + 面包屑；孤儿展开即复活、外部即收编 |
+| [P5 蜂群 × 项目](./08-project/p5-swarm-in-project.html) | 蜂群的项目内体现（编队卡展开：成员/职责/看板计数/广场尾声）与发起动线（目录预填 + 班子建议与 worktree 约定写进指挥开场白），零新增编排 API |
 
 关键交互细节：
 
@@ -106,6 +107,19 @@
 - **活动 tab = git log ∪ 收尾留痕**：现存 worktree/主仓库的 git log 汇总，加上收尾时落盘的
   留痕条目（任务名/分支/headOid/base/策略/±行数/时间，见 §4）。「丢弃删除」后的提交不可达，
   **只剩留痕摘要，不承诺可恢复**；squash 合并同理靠留痕保住 任务→合并提交 的映射。
+- **蜂群在项目里（P5）**——体现三层 / 使用四步：
+  - 体现：P1 卡片 ⬡ 计数 → P2 任务流 ⬡ 编队组（成员即任务行）→ 编队 tab 蜂群卡展开
+    （成员/subrole/看板列计数/广场最后一条）。数据 = `GET /swarms/:n` + board/feed +
+    cwd join（成员会话落在哪个 worktree），**零新增编排 API**。
+  - 发起：编队 tab「＋ 新建蜂群…」——目录预填 = 项目仓库，目标 textarea，班子建议 chips
+    （`GET /swarm/subroles`），「成员各自独立 worktree」默认勾选。提交 = 一次
+    `POST /swarms`：班子与 worktree 约定**只写进指挥开场白**（同 W1 命名约定手法），
+    拆任务/建成员/派活的编排权留给指挥（cc-swarm 全生命周期）。
+  - 干活中：成员行「进入」下钻终端；「给指挥发话」= `POST /swarms/:n/say`（广场署名
+    human）；编排动作（加人/流转/验收）一律跳蜂群台，项目页不代做。
+  - 完成与集成：done 判定只认指挥显式 `swarm done`（项目页不代标）；done 后成员行变
+    「待集成」，worktree 合并建议走蜂群台集成验收；若在 P3 单独收尾，提示
+    「该 worktree 属蜂群 <名>」。跨仓库成员在本项目置灰只留跳转，防双处操作。
 - **worktree × 命令行（P4）**：一个 worktree 下可挂多条命令行——agent 会话与裸 shell 同列
   （挂靠 = cwd join 实况：cd 走自动离组、cd 进自动入列；多 pane 命中多 worktree 显 ⚠ 歧义
   标记，hover 列全部 matches）。行内终端尾行预览只读（capture-pane，懒加载）；
