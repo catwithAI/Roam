@@ -82,10 +82,15 @@ function SwarmList({ list, onOpen, reload }: { list: SwarmRow[]; onOpen: (n: str
   ]
   const shown = status === 'active' ? list.filter((s) => !isArchived(s)) : list.filter((s) => norm(s.status) === status)
   return (
-    <Card
-      title={<Space size={8}>{t('nav.swarm')}<Tag style={{ margin: 0 }}>{count('active')}</Tag></Space>}
-      extra={<Button type="primary" onClick={() => setCreating(true)}>+ {t('swarm.new')}</Button>}
-    >
+    // 页面头与「项目」页同款（全站统一：标题 16/700 起于 tt-page 左上角，操作靠右），
+    // 不再套 antd Card——卡头会把标题多缩进一层，五页起点就不齐了。
+    <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{t('nav.swarm')}</span>
+        <Tag style={{ margin: 0 }}>{count('active')}</Tag>
+        <span style={{ flex: 1 }} />
+        <Button type="primary" size="small" onClick={() => setCreating(true)}>+ {t('swarm.new')}</Button>
+      </div>
       {/* 按状态过滤 */}
       {list.length > 0 && options.length > 1 && (
         <Segmented value={status} onChange={(v) => setStatus(v as string)} options={options} style={{ marginBottom: 14 }} />
@@ -106,7 +111,7 @@ function SwarmList({ list, onOpen, reload }: { list: SwarmRow[]; onOpen: (n: str
         </div>
       )}
       <NewSwarmModal open={creating} onClose={() => setCreating(false)} onDone={reload} />
-    </Card>
+    </div>
   )
 }
 

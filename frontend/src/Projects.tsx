@@ -30,8 +30,9 @@ type Proj = {
 
 // ── 页面级样式（一次注入；产品 token 之上只做布局/微交互）──
 const PRJ_CSS = `
-.prj-wrap{max-width:880px;margin:0 auto;padding:2px 2px 32px}
-.prj-wrap-wide{max-width:1080px;margin:0 auto;padding:2px 2px 32px}
+/* 左对齐不居中：全站页面统一从 tt-page 的 (16,16) 起笔，限宽只管可读性 */
+.prj-wrap{max-width:880px;margin:0;padding:0 0 32px}
+.prj-wrap-wide{max-width:1180px;margin:0;padding:0 0 32px}
 .prj-mono{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace}
 .prj-in{animation:prjIn .38s cubic-bezier(.2,.85,.3,1) backwards}
 @keyframes prjIn{from{opacity:0;transform:translateY(6px)}}

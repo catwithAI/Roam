@@ -414,9 +414,8 @@ export default function App() {
   const lazyFallback = <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}><Spin /></div>
   const page = <Suspense fallback={lazyFallback}>{pages[tab] || pages.projects}</Suspense>
   // browser 全幅(自带工具栏铺满)；phone 与概览/会话一致走 tt-page（同 16px 留白 + 满高，见 tt-page-phone）。
-  const pageNode = tab === 'browser'
-    ? page
-    : <div className={`tt-page tt-page-${tab}${isMobile ? ' tt-page-mobile' : ''}`}>{page}</div>
+  // 浏览器页不再全幅特例：与 文件/手机 同走 tt-page 满高容器，五页左上角起点统一 (16,16)
+  const pageNode = <div className={`tt-page tt-page-${tab}${isMobile ? ' tt-page-mobile' : ''}`}>{page}</div>
 
   const menu = (
     <Menu
