@@ -123,6 +123,7 @@
     （`GET /swarm/subroles`），「成员各自独立 worktree」默认勾选。提交 = 一次
     `POST /swarms`：班子与 worktree 约定**只写进指挥开场白**（同 W1 命名约定手法），
     拆任务/建成员/派活的编排权留给指挥（cc-swarm 全生命周期）。
+    **创建动线的字段级/编排级完整设计见 [09-swarm-in-project](./09-swarm-in-project.md)**。
   - 干活中：成员行「进入」下钻终端；「给指挥发话」= `POST /swarms/:n/say`（广场署名
     human）；编排动作（加人/流转/验收）一律跳蜂群台，项目页不代做。
   - 完成与集成：done 判定只认指挥显式 `swarm done`（项目页不代标）；done 后成员行变
