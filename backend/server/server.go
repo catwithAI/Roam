@@ -121,8 +121,10 @@ func New(cfg Config) *gin.Engine {
 		g.GET("/file/download", h.FileDownload)
 		g.POST("/file/rename", h.FileRename)
 		g.POST("/file/copy", h.FileCopy)
+		g.POST("/file/move", h.FileMove) // 文件侧栏：移动文件/目录
 		g.DELETE("/file", h.FileDelete)
 		g.POST("/file/mkdir", h.FileMkdir) // 文件侧栏：在当前目录新建子目录
+		g.POST("/file/touch", h.FileTouch) // 文件侧栏：在指定目录新建空文件
 		g.POST("/upload", h.Upload)        // 上传文件到指定目录（拖拽到对话框 / 文件侧栏）
 
 		g.GET("/git/status", h.GitStatus)    // Git 面板：当前工作目录所属仓库状态
