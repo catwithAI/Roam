@@ -1050,14 +1050,16 @@ func (s *Service) remoteBranches(ctx context.Context, repo Repo) []RemoteBranch 
 	if len(remotes) == 0 {
 		return nil
 	}
-	out, e := git(ctx, repo.Root, "for-each-ref", "refs/remotes", "--format=%(refname:short)", "--sort=-committerdate")
+	// 全名 %(refname) 自己剥前缀：%(refname:short) 在歧义时（如本地分支恰叫
+	// origin/foo）会输出 remotes/origin/foo，按 remote 前缀匹配失败被静默漏掉。
+	out, e := git(ctx, repo.Root, "for-each-ref", "refs/remotes", "--format=%(refname)", "--sort=-committerdate")
 	if e != nil {
 		return nil
 	}
 	var list []RemoteBranch
 	for _, l := range strings.Split(out, "\n") {
-		short := strings.TrimSpace(l)
-		if short == "" {
+		short := strings.TrimPrefix(strings.TrimSpace(l), "refs/remotes/")
+		if short == "" || short == strings.TrimSpace(l) {
 			continue
 		}
 		match := ""

@@ -261,22 +261,31 @@ func TestBranchesAndCreateFromRemote(t *testing.T) {
 	local := mkRepo(t)
 	gitIn(local, "remote", "add", "origin", upstream)
 	gitIn(local, "fetch", "-q", "origin")
+	// 歧义引用名：本地分支恰叫 origin/main 时 %(refname:short) 会输出
+	// remotes/origin/main——远端分支不能因此被漏掉
+	gitIn(local, "branch", "origin/main")
 
 	_, _, remotes, err := s.Branches(ctx, local)
 	if err != nil {
 		t.Fatalf("branches: %v", err)
 	}
-	found := false
+	foundFeat, foundMain := false, false
 	for _, rb := range remotes {
 		if rb.Remote == "origin" && rb.Name == "feat/remote-only" {
-			found = true
+			foundFeat = true
+		}
+		if rb.Remote == "origin" && rb.Name == "main" {
+			foundMain = true
 		}
 		if rb.Name == "HEAD" {
 			t.Fatalf("HEAD should be skipped: %+v", remotes)
 		}
 	}
-	if !found {
+	if !foundFeat {
 		t.Fatalf("origin/feat/remote-only not listed: %+v", remotes)
+	}
+	if !foundMain {
+		t.Fatalf("origin/main dropped under ambiguous local branch name: %+v", remotes)
 	}
 
 	// 基于远端分支建 worktree：本地无 feat/remote-only，Create fetch 后锁 OID
