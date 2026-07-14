@@ -1091,6 +1091,12 @@ const zhCN = {
   'project.rename': '重命名',
   'project.renamed': '已重命名',
   'project.shell': '＋ 命令行',
+  'swarm.rosterLabel': '班子建议（写进指挥开场白，最终由指挥按 dev-roles 拆定）',
+  'swarm.rosterTooMany': '建议超过 5 个角色——注意资源开销，指挥会按需精简',
+  'swarm.wtPolicy': '成员各自独立 worktree（改代码成员经 fork-worktree 进独立分支）',
+  'project.newSwarm': '＋ 新建蜂群…',
+  'project.swarm.board': '蜂群台',
+  'project.swarm.members': '成员 {mine}/{total} 在本项目',
 }
 
 export default zhCN

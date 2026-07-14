@@ -1091,6 +1091,12 @@ const enUS = {
   'project.rename': 'Rename',
   'project.renamed': 'Renamed',
   'project.shell': '+ Shell',
+  'swarm.rosterLabel': 'Roster suggestion (goes into leader kickoff; leader finalizes per dev-roles)',
+  'swarm.rosterTooMany': 'More than 5 roles suggested — mind the cost; the leader may trim',
+  'swarm.wtPolicy': 'Members work in isolated worktrees (code members fork-worktree into own branches)',
+  'project.newSwarm': '+ New swarm…',
+  'project.swarm.board': 'Swarm board',
+  'project.swarm.members': '{mine}/{total} members in this project',
 }
 
 export default enUS

@@ -19,6 +19,7 @@ const WorktreePanel = lazy(() => import('./WorktreePanel'))
 const GitPanel = lazy(() => import('./GitPanel'))
 const RaceCreateModal = lazy(() => import('./Race').then((m) => ({ default: m.RaceCreateModal })))
 const RaceComparePanel = lazy(() => import('./Race').then((m) => ({ default: m.RaceComparePanel })))
+const NewSwarmModal = lazy(() => import('./Swarm').then((m) => ({ default: m.NewSwarmModal })))
 
 type ProjSession = { name: string; attached: boolean; lastActivity: number; branch?: string; linked?: boolean }
 type Proj = {
@@ -312,6 +313,8 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
   const [cx, setCx] = useState<Record<string, boolean>>({})
   const [needsInput, setNeedsInput] = useState<Record<string, boolean>>({})
   const [races, setRaces] = useState<any[]>([])
+  const [swarms, setSwarms] = useState<any[]>([])
+  const [swarmOpen, setSwarmOpen] = useState(false)
   const [activity, setActivity] = useState<any[]>([])
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [peeks, setPeeks] = useState<Record<string, string>>({})
@@ -390,6 +393,32 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
     if (isGit) return sessions.filter((s) => ann[s.name]?.primary?.repo === dir)
     return sessions.filter((s) => (proj?.top || []).some((x) => x.name === s.name))
   }, [sessions, ann, dir, isGit, proj])
+  // 蜂群归属（08 §2.2）：swarm ls 无 dir 字段——按「指挥/成员会话 ∈ 本项目会话」现算
+  const mineKey = useMemo(() => mine.map((s) => s.name).sort().join('\n'), [mine])
+  useEffect(() => {
+    if (!isGit) return
+    let stop = false
+    const loadSwarms = async () => {
+      try {
+        const list = await api('GET', '/swarms')
+        const names = new Set(mineKey.split('\n').filter(Boolean))
+        const active = (Array.isArray(list) ? list : []).filter((s: any) => s.status !== 'archived')
+        const out: any[] = []
+        await Promise.all(active.map(async (sw: any) => {
+          try {
+            const st = await api('GET', `/swarms/${encodeURIComponent(sw.name)}`)
+            const members = (st?.members || []) as any[]
+            const inProj = members.filter((m: any) => names.has(m.session)).length + (st?.supervisor && names.has(st.supervisor) ? 1 : 0)
+            if (inProj > 0) out.push({ ...sw, inProj, roster: members.length + (st?.supervisor ? 1 : 0) })
+          } catch {}
+        }))
+        if (!stop) setSwarms(out.sort((a, b) => String(a.name).localeCompare(String(b.name))))
+      } catch {}
+    }
+    loadSwarms()
+    const i = setInterval(loadSwarms, 10000)
+    return () => { stop = true; clearInterval(i) }
+  }, [isGit, mineKey])
   // Agent 运行标注 + 待输入检测（仅本项目会话，量小）
   useEffect(() => {
     let stop = false
@@ -628,7 +657,7 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
         <div className="prj-tabs prj-in" style={{ animationDelay: '110ms' }}>
           {tabBtn('tasks', t('project.tasks'), mine.length + unfinished.length + clean.length)}
           {isGit && tabBtn('wt', 'Worktree', wts.length)}
-          {isGit && tabBtn('race', t('project.tab.race'), races.length)}
+          {isGit && tabBtn('race', t('project.tab.race'), races.length + swarms.length)}
           {isGit && tabBtn('act', t('project.tab.activity'))}
         </div>
 
@@ -760,9 +789,23 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
               </div>
             </div>
           ))}
-          {races.length === 0 && <div className="prj-empty">{t('project.formation.empty')}</div>}
-          <div style={{ marginTop: 10 }}>
+          {/* 蜂群卡（⬡ 编队组投影）：动作只有跳转——编排在蜂群台，项目页是作战地图 */}
+          {swarms.map((sw: any) => (
+            <div key={sw.id || sw.name} className="prj-panel prj-in" style={{ padding: '13px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <Tag color="purple" style={{ margin: 0 }}>⬡ {t('nav.swarm')}</Tag>
+                <b>{sw.name}</b>
+                {sw.goal && <span style={{ fontSize: 12, color: 'var(--text-dimmer)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>{sw.goal}</span>}
+                <span style={{ fontSize: 12, color: 'var(--text-dimmer)' }}>{t('project.swarm.members', { mine: sw.inProj, total: sw.roster })}</span>
+                <span style={{ flex: 1 }} />
+                <Button size="small" onClick={() => { location.hash = '#/swarm/' + encodeURIComponent(sw.name) }}>{t('project.swarm.board')} →</Button>
+              </div>
+            </div>
+          ))}
+          {races.length === 0 && swarms.length === 0 && <div className="prj-empty">{t('project.formation.empty')}</div>}
+          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
             <Button size="small" onClick={() => setRaceOpen(true)}>{t('project.newRace')}</Button>
+            <Button size="small" onClick={() => setSwarmOpen(true)}>{t('project.newSwarm')}</Button>
           </div>
         </>)}
 
@@ -794,6 +837,11 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
             </div>
           )}
           {raceOpen && <RaceCreateModal open={raceOpen} onClose={() => setRaceOpen(false)} onDone={() => { setRaceOpen(false); refresh() }} />}
+          {swarmOpen && (
+            <NewSwarmModal open={swarmOpen} initialDir={dir} lockDir
+              onClose={() => setSwarmOpen(false)}
+              onDone={(n) => { setSwarmOpen(false); refresh(); if (n) openTerm('cc-' + n) }} />
+          )}
           {compareRace && <RaceComparePanel race={compareRace} onClose={() => setCompareRace(null)} openTerm={openTerm} onChanged={refresh} />}
         </Suspense>
         {/* 完整表单（W1 弹窗）与 派生（parent 固定）复用同一张表单；收尾走 W7 三选一 */}
