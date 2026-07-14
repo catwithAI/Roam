@@ -89,6 +89,37 @@ func TestFileCopyCleanupOnFailure(t *testing.T) {
 	}
 }
 
+func TestRenameNoReplace(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	os.WriteFile(src, []byte("s"), 0o644)
+
+	// 目标不存在 → 正常改名
+	dst := filepath.Join(dir, "dst.txt")
+	if err := renameNoReplace(src, dst); err != nil {
+		t.Fatalf("rename to free target: %v", err)
+	}
+
+	// 目标已存在(文件) → os.ErrExist，且目标内容不被覆盖
+	other := filepath.Join(dir, "other.txt")
+	os.WriteFile(other, []byte("keep"), 0o644)
+	if err := renameNoReplace(dst, other); !os.IsExist(err) {
+		t.Fatalf("want ErrExist, got %v", err)
+	}
+	if b, _ := os.ReadFile(other); string(b) != "keep" {
+		t.Fatalf("target overwritten: %q", b)
+	}
+
+	// 目标已存在(目录) → os.ErrExist
+	d1 := filepath.Join(dir, "d1")
+	d2 := filepath.Join(dir, "d2")
+	os.Mkdir(d1, 0o755)
+	os.Mkdir(d2, 0o755)
+	if err := renameNoReplace(d1, d2); !os.IsExist(err) {
+		t.Fatalf("want ErrExist for dir, got %v", err)
+	}
+}
+
 func TestFileTouch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := &API{}
