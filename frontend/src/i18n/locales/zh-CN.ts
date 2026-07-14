@@ -1088,6 +1088,9 @@ const zhCN = {
   'project.newRace': '＋ 新建竞赛…',
   'project.act.empty': '近 30 天无提交',
   'project.act.hint': '全部分支近 30 天提交汇总（含已关会话的分支）',
+  'project.rename': '重命名',
+  'project.renamed': '已重命名',
+  'project.shell': '＋ 命令行',
 }
 
 export default zhCN

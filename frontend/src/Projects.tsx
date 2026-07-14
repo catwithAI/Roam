@@ -8,7 +8,7 @@
 // （渐变卡面 + focus 辉光环）、git 数据一律等宽字、行 hover 左导轨渐显、
 // 分区头沿用设计图纸体例、入场一次性 stagger。全部颜色走 index.css token。
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { App as AntApp, AutoComplete, Button, Input, Modal, Popconfirm, Segmented, Select, Space, Spin, Tag, Tooltip } from 'antd'
+import { App as AntApp, AutoComplete, Button, Input, Modal, Popconfirm, Segmented, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import { api } from './api'
 import { useI18n } from './i18n'
 import { usePreferences } from './preferences'
@@ -470,6 +470,24 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
       message.success(t('session.created')); openTerm(actual); refresh()
     } catch (e: any) { message.error(e.message) }
   }
+  // 纯命令行：项目目录里开一个裸 shell 会话（同名已存在则直接进入，不重复建）
+  const newShell = async () => {
+    if (!proj) return
+    const name = proj.name + '-sh'
+    if (sessions.some((s) => s.name === name)) { openTerm(name); return }
+    try {
+      const res = await api('POST', '/sessions', { name, dir })
+      message.success(t('session.created')); openTerm(res.name || name); refresh()
+    } catch (e: any) { message.error(e.message) }
+  }
+  // 重命名 = 改 displayName 偏好（空值回退目录名，key/目录不变）
+  const rename = async (v: string) => {
+    if (!proj || v.trim() === proj.name) return
+    try {
+      await api('PATCH', `/projects/${encodeURIComponent(proj.key)}/prefs`, { displayName: v.trim() })
+      message.success(t('project.renamed')); refresh()
+    } catch (e: any) { message.error(e.message) }
+  }
   // 收尾（W7 三选一）：会话在 worktree 内走 CloseWorktreeModal；否则普通关闭
   const beginClose = async (n: string) => {
     let st: any = null
@@ -569,12 +587,17 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
             style={{ color: 'var(--text-dim)', paddingInline: 6, flex: '0 0 auto' }}>‹ {t('project.title')}</Button>
           <span style={{ width: 1, height: 18, background: 'var(--border-subtle)', flex: '0 0 auto' }} />
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proj.name}</div>
+            {/* 名称可编辑 = 重命名（displayName 偏好，key/目录不变） */}
+            <Typography.Text style={{ fontSize: 16, fontWeight: 700, display: 'block', whiteSpace: 'nowrap' }}
+              ellipsis editable={{ onChange: rename, tooltip: t('project.rename'), triggerType: ['icon'] }}>
+              {proj.name}
+            </Typography.Text>
             <div className="prj-mono" style={{ fontSize: 11.5, color: 'var(--text-dimmer)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={proj.dir}>
               {proj.dir}
               {isGit && defBranch && <span style={{ color: '#39c5cf' }}> · ⎇ {defBranch}{mainHead ? ` @ ${mainHead}` : ''}</span>}
             </div>
           </div>
+          <Button size="small" onClick={newShell}>{t('project.shell')}</Button>
           {isGit && <Button size="small" onClick={() => setGitOpen(true)}>{t('project.gitPanel')}</Button>}
         </div>
 
