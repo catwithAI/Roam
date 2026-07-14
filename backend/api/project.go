@@ -45,6 +45,7 @@ type projectSummary struct {
 	Unfinished   int              `json:"unfinished"` // 孤儿 roam worktree ∧ (未合并提交 ∨ 未提交改动)
 	Races        int              `json:"races"`      // running 状态的竞赛数
 	LastActivity int64            `json:"lastActivity"`
+	FirstSeen    int64            `json:"firstSeen"`
 	Top          []projectSession `json:"top"` // 活跃会话前 2（P1 卡片「进行中」）
 }
 
@@ -121,7 +122,7 @@ func (a *API) ProjectsList(c *gin.Context) {
 			continue // 一时读不出（锁竞争/超时）：保留台账，本轮跳过
 		}
 		p := projectSummary{
-			Key: key, Dir: e.Dir, Pinned: e.Pinned,
+			Key: key, Dir: e.Dir, Pinned: e.Pinned, FirstSeen: e.FirstSeen,
 			DefaultAgent: e.DefaultAgent, DefaultBase: e.DefaultBase,
 			Races: races[filepath.Clean(e.Dir)],
 		}
@@ -192,18 +193,19 @@ func (a *API) ProjectsList(c *gin.Context) {
 			loose = append(loose, projectSession{Name: s.Name, Attached: rawInt(s.Attached) > 0, LastActivity: rawInt(s.LastActivity)})
 		}
 	}
-	sort.Slice(loose, func(i, j int) bool { return loose[i].LastActivity > loose[j].LastActivity })
+	// 散会话同样稳定排序（按名称）——活动时间只展示，不参与排序防跳变
+	sort.Slice(loose, func(i, j int) bool { return loose[i].Name < loose[j].Name })
 
-	// 排序在服务端定：置顶 > 有活跃会话 > 最近活动倒序（前端不重排）
+	// 排序在服务端定且必须稳定（不随活动跳变——活动只展示不参与排序）：
+	// 置顶 > 入册时间（老项目位置不动，新项目追加在后）> 名称兜底。
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].Pinned != list[j].Pinned {
 			return list[i].Pinned
 		}
-		ai, aj := list[i].Attached > 0, list[j].Attached > 0
-		if ai != aj {
-			return ai
+		if list[i].FirstSeen != list[j].FirstSeen {
+			return list[i].FirstSeen < list[j].FirstSeen
 		}
-		return list[i].LastActivity > list[j].LastActivity
+		return list[i].Name < list[j].Name
 	})
 
 	resp := gin.H{"data": gin.H{"projects": list, "loose": loose}}

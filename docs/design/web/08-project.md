@@ -194,7 +194,9 @@ project 包不直接跑 git 子进程——repo 解析、worktree 列表、diff 
    仓库间 errgroup 并行、并发 ≤4；整个响应再套 5s TTL 缓存（与 W4 轮询节拍一致）。
 3. RaceStore 计数；目录不存在 → §2.1(a) 移出；无 roam worktree ∧ 无会话 ∧ 未置顶 →
    §2.1(b) 移出——收敛发生在读时，无后台任务。
-4. 排序在服务端定（置顶 > 有 running > 最近活动倒序），前端不重排。
+4. 排序在服务端定且**必须稳定**（v0.2 修订：活动只展示、不参与排序——按活动排会随
+   轮询不断跳变）：置顶 > 入册时间（FirstSeen，老项目位置不动、新项目追加在后）>
+   名称兜底；前端不重排。
 
 单仓库详情（`GET /projects/:repoKey`）在此之上加：任务投影（§2.2——纯函数
 `tasks(sessions, worktrees, races)`，无状态无持久化）、7 日 spark
