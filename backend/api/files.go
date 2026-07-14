@@ -501,6 +501,97 @@ func (a *API) FileCopy(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": dest, "dir": info.IsDir()}})
 }
 
+// FileMove POST /file/move —— 移动文件或目录到指定绝对路径。target 已存在且是目录时移入目录内。
+func (a *API) FileMove(c *gin.Context) {
+	var req struct {
+		Path   string `json:"path"`
+		Target string `json:"target"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_FORM", "message": err.Error()}})
+		return
+	}
+	src := filepath.Clean(req.Path)
+	target := filepath.Clean(req.Target)
+	if src == "" || target == "" || !filepath.IsAbs(src) || !filepath.IsAbs(target) || src == string(filepath.Separator) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_PATH"}})
+		return
+	}
+	info, err := os.Lstat(src)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "FS_ERROR", "message": err.Error()}})
+		return
+	}
+	dest := target
+	if ti, err := os.Stat(target); err == nil && ti.IsDir() {
+		dest = filepath.Join(target, filepath.Base(src))
+	}
+	if dest == src {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "SAME_PATH"}})
+		return
+	}
+	if info.IsDir() {
+		if rel, err := filepath.Rel(src, dest); err == nil && (rel == "." || (!strings.HasPrefix(rel, "..") && rel != "")) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "MOVE_INTO_SELF"}})
+			return
+		}
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "EXISTS"}})
+		return
+	}
+	if err := os.Rename(src, dest); err != nil {
+		// 跨设备(EXDEV)等 rename 失败时退化为 复制+删除
+		if cerr := copyPath(src, dest); cerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "MOVE_ERROR", "message": err.Error()}})
+			return
+		}
+		if rerr := os.RemoveAll(src); rerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "MOVE_ERROR", "message": rerr.Error()}})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": dest, "dir": info.IsDir()}})
+}
+
+// FileTouch POST /file/touch —— 在指定目录(dir)下新建空文件(name)。返回创建后的绝对路径。
+func (a *API) FileTouch(c *gin.Context) {
+	var req struct {
+		Dir  string `json:"dir"`
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_FORM", "message": err.Error()}})
+		return
+	}
+	dir := filepath.Clean(req.Dir)
+	if dir == "" || !filepath.IsAbs(dir) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_PATH"}})
+		return
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "NOT_DIR"}})
+		return
+	}
+	name := cleanEntryName(req.Name)
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_NAME"}})
+		return
+	}
+	dest := filepath.Join(dir, name)
+	f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "EXISTS"}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "WRITE_ERROR", "message": err.Error()}})
+		return
+	}
+	_ = f.Close()
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": dest}})
+}
+
 // FileDownload GET /file/download?path=<file-or-dir> —— 下载文件；目录会流式打包为 Zip。
 func (a *API) FileDownload(c *gin.Context) {
 	p := filepath.Clean(c.Query("path"))
@@ -594,11 +685,27 @@ func (a *API) FileDelete(c *gin.Context) {
 			return
 		}
 	}
-	rm := os.Remove
 	if info.IsDir() && recursive {
-		rm = os.RemoveAll
+		// 先原子改名到同目录下的临时名再递归删除：若 Lstat 之后目标被并发替换，
+		// 直接 RemoveAll(p) 会误删替换目录（TOCTOU）；改名后用 inode 校验兜底。
+		tmp := fmt.Sprintf("%s.~deleting-%d-%d", p, os.Getpid(), time.Now().UnixNano())
+		if err := os.Rename(p, tmp); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DELETE_ERROR", "message": err.Error()}})
+			return
+		}
+		if st, err := os.Lstat(tmp); err != nil || !os.SameFile(info, st) {
+			_ = os.Rename(tmp, p) // 改名到的不是确认过的那个目录，还原现场
+			c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "PATH_CHANGED", "message": "目标在删除前被并发修改，未删除"}})
+			return
+		}
+		if err := os.RemoveAll(tmp); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DELETE_ERROR", "message": err.Error()}})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": gin.H{"path": p, "dir": true}})
+		return
 	}
-	if err := rm(p); err != nil {
+	if err := os.Remove(p); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DELETE_ERROR", "message": err.Error()}})
 		return
 	}
