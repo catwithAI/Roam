@@ -887,6 +887,7 @@ function TerminalPane(props: {
     { type: 'divider' as const },
     { key: 'scroll-up', label: t('terminal.scrollHistory') },
     { key: 'bottom', label: t('terminal.toBottom') },
+    { key: 'redraw', label: t('terminal.redraw') },
     { key: 'reconnect', label: t('terminal.reconnect') },
     { type: 'divider' as const },
     {
@@ -911,6 +912,7 @@ function TerminalPane(props: {
     else if (key === 'manual-paste') openManualPaste(ctx.session)
     else if (key === 'scroll-up') h?.scroll(-12)
     else if (key === 'bottom') h?.toBottom()
+    else if (key === 'redraw') h?.redraw()
     else if (key === 'reconnect') h?.reconnect()
     else h?.send(key)
     setCtx(null)
@@ -1000,6 +1002,7 @@ function TerminalPane(props: {
       <Tooltip title={t('terminal.toBottom')}><Button size="small" onClick={() => active && termRefs.current[active]?.toBottom()}>{t('terminal.bottomShort')}</Button></Tooltip>
       <Tooltip title={t('terminal.decreaseFont')}><Button size="small" onClick={() => setFontSize(Math.max(10, fontSize - 1))}>A-</Button></Tooltip>
       <Tooltip title={t('terminal.increaseFont')}><Button size="small" onClick={() => setFontSize(Math.min(22, fontSize + 1))}>A+</Button></Tooltip>
+      <Tooltip title={t('terminal.redraw')}><Button size="small" onClick={() => active && termRefs.current[active]?.redraw()}>{t('terminal.redrawShort')}</Button></Tooltip>
       <Tooltip title={t('terminal.reconnect')}><Button size="small" onClick={() => active && termRefs.current[active]?.reconnect()}>{t('terminal.reconnectShort')}</Button></Tooltip>
     </div>
   )

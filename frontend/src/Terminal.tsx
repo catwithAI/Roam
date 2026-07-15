@@ -17,6 +17,9 @@ export interface TermHandle {
   toBottom: () => void
   // 按视口坐标激活该处的 tmux pane（分窗时拖放/点击定位到正确窗格）
   selectPaneAt: (clientX: number, clientY: number) => void
+  // 尺寸抖动(cols−1→cols)触发两次 SIGWINCH，逼全屏 TUI 整屏重排重绘。
+  // 窄屏(手机)下 Claude Code 等 ink TUI 折行重绘错位会满屏堆叠垃圾行，等价于「拖一下窗口就好了」。
+  redraw: () => void
 }
 
 // xterm 不认 CSS var()，需具体色值：读 <html> 上的同名变量，随黑/白主题切换。
@@ -136,6 +139,19 @@ const Term = forwardRef<TermHandle, {
     }
   }
 
+  // 尺寸抖动重绘：cols−1 再复原，两次 SIGWINCH 让 TUI(ink) 整屏重排、清掉错位堆积的垃圾行。
+  // 后端 resize 有 cols<20 保护，抖动后一定复原到真实尺寸。
+  const jiggleResize = () => {
+    const t = termRef.current, ws = wsRef.current
+    if (!t || !ws || ws.readyState !== 1 || t.cols <= 21 || t.rows < 6) return
+    ws.send(JSON.stringify({ type: 'resize', cols: t.cols - 1, rows: t.rows }))
+    setTimeout(() => {
+      const t2 = termRef.current, ws2 = wsRef.current
+      if (!t2 || !ws2 || ws2.readyState !== 1) return
+      ws2.send(JSON.stringify({ type: 'resize', cols: t2.cols, rows: t2.rows }))
+    }, 150)
+  }
+
   const selectPaneAtClient = (clientX: number, clientY: number) => {
     const ws = wsRef.current, cell = cellAt(clientX, clientY)
     if (!cell || !ws || ws.readyState !== 1) return
@@ -238,7 +254,12 @@ const Term = forwardRef<TermHandle, {
     const ws = new WebSocket(`${proto}://${location.host}/api/term/${encodeURIComponent(name)}`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
-    ws.onopen = () => { onStatus?.('connected'); termRef.current?.focus(); sendResize() }
+    ws.onopen = () => {
+      onStatus?.('connected'); termRef.current?.focus(); sendResize()
+      // attach 尺寸常与上个客户端不同(桌面↔手机)，宽行重折行会在 TUI 屏上留错位垃圾；
+      // 等首次 resize 生效后自动抖动重绘一次，进来就是干净画面。
+      setTimeout(jiggleResize, 600)
+    }
     ws.onmessage = (e) => {
       const t = termRef.current
       if (!t) return
@@ -266,6 +287,7 @@ const Term = forwardRef<TermHandle, {
     scroll: (lines) => sendScroll(lines < 0 ? 'up' : 'down', Math.abs(lines)),
     toBottom: () => sendScroll('bottom', 0),
     selectPaneAt: (clientX, clientY) => selectPaneAtClient(clientX, clientY),
+    redraw: () => jiggleResize(),
   }))
 
   useEffect(() => {

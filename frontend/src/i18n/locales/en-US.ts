@@ -60,6 +60,8 @@ const enUS = {
   'terminal.manualPaste': 'Manual paste…',
   'terminal.scrollHistory': 'Scroll history',
   'terminal.toBottom': 'Jump to latest',
+  'terminal.redraw': 'Redraw screen (fix garbled output)',
+  'terminal.redrawShort': 'Redraw',
   'terminal.reconnect': 'Reconnect',
   'terminal.tmuxCopyMode': 'tmux copy mode',
   'terminal.tmuxWindowList': 'tmux window list',
