@@ -12,6 +12,7 @@ const enUS = {
   'common.copied': 'Copied',
   'common.copyFailed': 'Copy failed',
   'common.close': 'Close',
+  'common.back': 'Back',
   'common.refresh': 'Refresh',
   'common.more': 'More',
   'common.confirm': 'Confirm',

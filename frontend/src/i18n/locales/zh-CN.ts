@@ -12,6 +12,7 @@ const zhCN = {
   'common.copied': '已复制',
   'common.copyFailed': '复制失败',
   'common.close': '关闭',
+  'common.back': '返回',
   'common.refresh': '刷新',
   'common.more': '更多',
   'common.confirm': '确定',

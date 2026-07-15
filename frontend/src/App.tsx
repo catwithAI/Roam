@@ -16,6 +16,8 @@ import CodexChat from './CodexChat'
 import FileBrowser from './FileBrowser'
 import FileWorkspace from './FileWorkspace'
 import FloatingFileDrawer from './FloatingFileDrawer'
+import MobileSubPage from './MobileSubPage'
+import { FileView } from './fileview'
 // 非首屏的重页面（蜂群/Git 面板/浏览器/手机镜像/插件）按路由懒加载：切到对应 tab 才拉 chunk，
 // 缩小首屏 index 块。都渲染在同一个 Suspense 边界内（见 lazyFallback，App 内 page）。
 const GitPanel = lazy(() => import('./GitPanel'))
@@ -187,6 +189,11 @@ function FilesPage({ openTerm }: { openTerm: (name: string) => void }) {
   const { message } = AntApp.useApp()
   const { t } = useI18n()
   const [prefs] = usePreferences()
+  // 手机(窄屏)两级导航：一级整页文件列表，点文件后详情以全屏二级页(MobileSubPage)展开；
+  // 桌面仍是 FileWorkspace(文件树 dock + 多 tab 编辑)。
+  const screens = useBreakpoint()
+  const isMobile = !screens.md
+  const [mobileFile, setMobileFile] = useState<string | null>(null)
   const openAgent = async (kind: 'claude' | 'codex', file: string) => {
     const base = pathBasename(file).replace(/[^a-zA-Z0-9_.-]+/g, '-').slice(0, 28) || 'file'
     const name = `${kind}-${base}-${Date.now().toString(36).slice(-5)}`
@@ -203,6 +210,19 @@ function FilesPage({ openTerm }: { openTerm: (name: string) => void }) {
     } catch (e: any) {
       message.error(t('file.openFailed', { message: e.message }))
     }
+  }
+  if (isMobile) {
+    return (
+      <div style={{ height: '100%', minHeight: 0, display: 'flex' }}>
+        <FileBrowser dir="" accent="#58a6ff" layout="dock" onOpenFile={setMobileFile} onOpenAgent={openAgent} />
+        {mobileFile && (
+          <MobileSubPage onBack={() => setMobileFile(null)}>
+            <FileView path={mobileFile} accent="#58a6ff" inline onBack={() => setMobileFile(null)}
+              onClose={() => setMobileFile(null)} onOpenPath={setMobileFile} onOpenAgent={openAgent} />
+          </MobileSubPage>
+        )}
+      </div>
+    )
   }
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex' }}>
