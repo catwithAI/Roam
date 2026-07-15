@@ -111,7 +111,7 @@ const PRJ_CSS = `
 .prj-empty{color:var(--text-dimmer);font-size:12.5px;padding:14px 12px}
 `
 
-const dot = (on: boolean, color?: string) => (
+export const dot = (on: boolean, color?: string) => (
   <span style={{
     width: 8, height: 8, borderRadius: '50%', flex: '0 0 8px', display: 'inline-block',
     background: color || (on ? '#3fb950' : 'var(--text-dimmer)'),
@@ -121,7 +121,7 @@ const dot = (on: boolean, color?: string) => (
 
 // ── 生命周期导轨（P2 图纸）：建→干→审→并，当前段呼吸 ──────
 const LIFEC_COLORS = ['#39c5cf', '#3fb950', '#d29922', '#a371f7']
-function Lifec({ done, cur }: { done: number; cur?: number }) {
+export function Lifec({ done, cur }: { done: number; cur?: number }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
       {[1, 2, 3, 4].map((i) => (

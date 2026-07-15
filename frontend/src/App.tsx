@@ -27,6 +27,7 @@ const BrowserView = lazy(() => import('./BrowserView'))
 const PhoneView = lazy(() => import('./PhoneView'))
 const Swarm = lazy(() => import('./Swarm'))
 const Projects = lazy(() => import('./Projects'))
+const OverviewPage = lazy(() => import('./Overview'))
 import UpdateBanner from './UpdateBanner'
 import { useThemeMode } from './theme'
 import { useI18n } from './i18n'
@@ -399,7 +400,7 @@ export default function App() {
   )
 
   const pages: any = {
-    overview: <Overview go={go} openTerm={openTerm} />,
+    overview: <OverviewPage openTerm={openTerm} />,
     swarm: <Swarm openTerm={openTerm} initialSwarm={swarmSub || undefined} onNav={(n) => { location.hash = n ? '#/swarm/' + encodeURIComponent(n) : '#/swarm' }} />,
     projects: <Projects openTerm={openTerm} initialKey={projectSub || undefined} />,
     sessions: <Sessions openTerm={openTerm} closeTerm={closeTerm} activeTerm={active} />,
@@ -1270,127 +1271,7 @@ function Login({ onOk }: { onOk: () => void }) {
 
 // ── 概览（仪表盘）──
 // 蜂群状态 → 颜色/中文
-function SwarmStatusTag({ status }: { status?: string }) {
-  const { t } = useI18n()
-  const m: Record<string, [string, string]> = {
-    planning: ['blue', t('swarm.status.planning')], running: ['processing', t('common.running')],
-    integrating: ['gold', t('swarm.status.integrating')], done: ['success', t('common.done')], archived: ['default', t('swarm.status.archived')],
-  }
-  const [c, l] = m[status || ''] || ['default', status || '—']
-  return <Tag color={c} style={{ margin: 0 }}>{l}</Tag>
-}
-
-// 统计磁贴：左侧色块图标 + 大数字 + 标签，可点跳转
-function StatTile({ icon, label, value, accent, onClick }: {
-  icon: any; label: string; value: any; accent: string; onClick?: () => void
-}) {
-  return (
-    <Card size="small" hoverable={!!onClick} onClick={onClick}
-      style={{ cursor: onClick ? 'pointer' : 'default', background: 'var(--bg-container)', borderColor: 'var(--border-subtle)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ width: 40, height: 40, borderRadius: 10, flex: '0 0 auto', display: 'grid', placeItems: 'center', color: accent, background: accent + '22' }}>{icon}</div>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1, color: 'var(--text-bright)' }}>{value}</div>
-          <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>{label}</div>
-        </div>
-      </div>
-    </Card>
-  )
-}
-
-function Overview({ go, openTerm }: { go: (k: string) => void; openTerm: (n: string) => void }) {
-  const { t } = useI18n()
-  const [info, setInfo] = useState<any>(null)
-  const [swarms, setSwarms] = useState<any[]>([])
-  const [sessions, setSessions] = useState<any[]>([])
-  const load = () => {
-    api('GET', '/info').then(setInfo).catch(() => {})
-    api('GET', '/swarms').then((r) => setSwarms(Array.isArray(r) ? r : [])).catch(() => {})
-    api('GET', '/sessions').then((r) => setSessions(Array.isArray(r) ? r : [])).catch(() => {})
-  }
-  useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t) }, [])
-
-  const aliveMembers = swarms.reduce((n, x) => n + (x.alive || 0), 0)
-  const pendingMembers = swarms.reduce((n, x) => n + (x.pending || 0), 0)
-  const chip = { color: 'var(--text-dim)', background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', fontSize: 12 }
-
-  return (
-    <Space direction="vertical" size={14} style={{ width: '100%' }}>
-      {/* Hero */}
-      <div style={{ borderRadius: 14, padding: '22px 24px', background: 'linear-gradient(135deg,var(--bg-container) 0%,var(--bg-base) 100%)', border: '1px solid var(--border-subtle)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <img src="/logo-mark.svg" width={48} height={48} alt="Roam" style={{ flex: '0 0 auto', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,.5)' }} />
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-bright)' }}>{t('overview.welcome')}</div>
-            <div style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 4 }}>{t('overview.subtitle')}</div>
-          </div>
-          <Space wrap>
-            <Button type="primary" onClick={() => go('sessions')}>{t('overview.enterSessions')}</Button>
-            <Button onClick={() => go('swarm')}>{t('overview.viewSwarm')}</Button>
-          </Space>
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-          <Tag bordered={false} style={chip}>ttmux {info?.version || '—'}</Tag>
-          <Tag bordered={false} style={chip}>tmux {info?.tmux_version || '—'}</Tag>
-          {info?.data_dir && <Tag bordered={false} style={chip}>📁 {info.data_dir}</Tag>}
-        </div>
-      </div>
-
-      {/* 统计磁贴 */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
-        {[
-          { icon: ICONS.sessions, label: t('nav.sessions'), value: info?.sessions ?? sessions.length, accent: '#58a6ff', onClick: () => go('sessions') },
-          { icon: ICONS.swarm, label: t('nav.swarm'), value: swarms.length, accent: '#58a6ff', onClick: () => go('swarm') },
-          { icon: ICONS.swarm, label: t('overview.activeMembers'), value: aliveMembers, accent: '#3fb950', onClick: () => go('swarm') },
-          { icon: ICONS.overview, label: t('overview.pendingUnlock'), value: pendingMembers, accent: '#d29922', onClick: () => go('swarm') },
-        ].map((p, i) => <div key={i} style={{ flex: '1 1 140px', minWidth: 140 }}><StatTile {...p} /></div>)}
-      </div>
-
-      {/* 会话 + 蜂群 双栏（会话在前，蜂群在后） */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
-        <div style={{ flex: '1 1 360px', minWidth: 280 }}>
-          <Card title={t('nav.sessions')} extra={<a onClick={() => go('sessions')}>{t('common.all')} →</a>}>
-            {sessions.length === 0 ? <Empty description={t('session.noActive')} /> : (
-              <List size="small" dataSource={sessions.slice(0, 6)} renderItem={(s: any) => (
-                <List.Item style={{ padding: '8px 0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minWidth: 0 }}>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ color: 'var(--text-bright)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.name}>{s.name}</div>
-                      <div style={{ color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'nowrap' }} title={`${t('session.createdAt')} ${absTime(s.created)} · ${t('session.lastActivity')} ${absTime(s.last_activity)}`}>{t('session.windows', { count: s.windows })} · {s.attached == 1 ? t('terminal.status.connected') : t('terminal.status.idle')} · {t('session.lastActivity')} {relTime(s.last_activity, t)}</div>
-                    </div>
-                    <a onClick={() => openTerm(s.name)} style={{ flex: '0 0 auto', whiteSpace: 'nowrap' }}>{t('common.terminal')}</a>
-                  </div>
-                </List.Item>
-              )} />
-            )}
-          </Card>
-        </div>
-        <div style={{ flex: '1 1 360px', minWidth: 280 }}>
-          <Card title={<Space><span style={{ color: '#58a6ff' }}>◆</span>{t('nav.swarm')}</Space>} extra={<a onClick={() => go('swarm')}>{t('common.all')} →</a>}>
-            {swarms.length === 0 ? <Empty description={t('overview.noSwarms')} /> : (
-              <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                {swarms.slice(0, 5).map((s: any) => (
-                  <div key={s.id || s.name} onClick={() => go('swarm')}
-                    style={{ cursor: 'pointer', padding: '10px 12px', borderRadius: 10, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--text-bright)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
-                      <span style={{ flex: '0 0 auto' }}><SwarmStatusTag status={s.status} /></span>
-                      {s.supervisor && <Text type="secondary" style={{ fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>◆{s.supervisor}</Text>}
-                      <span style={{ flex: 1, minWidth: 8 }} />
-                      <span style={{ color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'nowrap', flex: '0 0 auto' }}>{t('overview.swarmCounts', { alive: s.alive, total: s.total })}{s.pending ? ` · ${t('overview.pendingShort', { count: s.pending })}` : ''}</span>
-                    </div>
-                    <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.goal || t('overview.noGoal')}</div>
-                    <Progress percent={s.total ? Math.round((s.alive / s.total) * 100) : 0} showInfo={false} size="small" strokeColor="#58a6ff" trailColor="var(--border-subtle)" style={{ marginBottom: 0, marginTop: 6 }} />
-                  </div>
-                ))}
-              </Space>
-            )}
-          </Card>
-        </div>
-      </div>
-    </Space>
-  )
-}
+// 概览页已重构为「项目为主」的独立组件（Overview.tsx，08 设计 P6）。
 
 // ── 任务（命令 + Agent 统一） ──
 function Tasks({ openTerm }: { openTerm: (n: string) => void }) {

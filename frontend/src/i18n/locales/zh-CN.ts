@@ -1130,6 +1130,20 @@ const zhCN = {
   'project.sort.name': '名称',
   'project.sort.created': '创建时间',
   'project.sort.active': '最近活跃',
+  'overview.needsYou': '需要你',
+  'overview.needsYouCount': '{count} 件事在等人工介入',
+  'overview.waiting': '待输入',
+  'overview.unfinishedN': '{count} 个任务待收尾',
+  'overview.pendingN': '{count} 成员待解锁',
+  'overview.activeProjects': '活跃项目',
+  'overview.activeHint': '{count} 个项目活跃',
+  'overview.runningTasks': '运行中任务',
+  'overview.enterProject': '进入项目',
+  'overview.goFinish': '去收尾',
+  'overview.gotoProjects': '进入项目页',
+  'overview.inactiveRest': '其余 {count} 个项目无活动 —— 在「项目」页查看全部',
+  'overview.recentActivity': '最近活动',
+  'overview.moreTasks': '+{count} 更多',
 }
 
 export default zhCN

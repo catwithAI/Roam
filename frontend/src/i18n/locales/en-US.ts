@@ -1130,6 +1130,20 @@ const enUS = {
   'project.sort.name': 'Name',
   'project.sort.created': 'Created',
   'project.sort.active': 'Last active',
+  'overview.needsYou': 'Needs you',
+  'overview.needsYouCount': '{count} item(s) waiting for a human',
+  'overview.waiting': 'Awaiting input',
+  'overview.unfinishedN': '{count} task(s) to finish',
+  'overview.pendingN': '{count} member(s) pending unlock',
+  'overview.activeProjects': 'Active projects',
+  'overview.activeHint': '{count} active project(s)',
+  'overview.runningTasks': 'Running tasks',
+  'overview.enterProject': 'Open project',
+  'overview.goFinish': 'Finish',
+  'overview.gotoProjects': 'All projects',
+  'overview.inactiveRest': '{count} more project(s) idle — see all on the Projects page',
+  'overview.recentActivity': 'Recent activity',
+  'overview.moreTasks': '+{count} more',
 }
 
 export default enUS
