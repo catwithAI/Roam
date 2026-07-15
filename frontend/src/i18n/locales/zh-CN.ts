@@ -1127,6 +1127,9 @@ const zhCN = {
   'project.swarm.sayPlaceholder': '写给指挥的话（广场署名 human，@leader 最高优先级）…',
   'project.swarm.saySend': '发到广场',
   'project.swarm.saySent': '已发到广场（@指挥）',
+  'project.sort.name': '名称',
+  'project.sort.created': '创建时间',
+  'project.sort.active': '最近活跃',
 }
 
 export default zhCN

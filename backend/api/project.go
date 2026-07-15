@@ -242,14 +242,11 @@ func (a *API) ProjectsList(c *gin.Context) {
 	// 散会话同样稳定排序（按名称）——活动时间只展示，不参与排序防跳变
 	sort.Slice(loose, func(i, j int) bool { return loose[i].Name < loose[j].Name })
 
-	// 排序在服务端定且必须稳定（不随活动跳变——活动只展示不参与排序）：
-	// 置顶 > 入册时间（老项目位置不动，新项目追加在后）> 名称兜底。
+	// 服务端给稳定的缺省序：置顶 > 名称；创建时间/最近活跃等排序模式由前端按
+	// firstSeen/lastActivity 字段自行切换（用户可选，v0.3）。
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].Pinned != list[j].Pinned {
 			return list[i].Pinned
-		}
-		if list[i].FirstSeen != list[j].FirstSeen {
-			return list[i].FirstSeen < list[j].FirstSeen
 		}
 		return list[i].Name < list[j].Name
 	})

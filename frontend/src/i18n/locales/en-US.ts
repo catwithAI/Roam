@@ -1127,6 +1127,9 @@ const enUS = {
   'project.swarm.sayPlaceholder': 'Message to the leader (posted to the plaza as human, @leader has top priority)…',
   'project.swarm.saySend': 'Post',
   'project.swarm.saySent': 'Posted to the plaza (@leader)',
+  'project.sort.name': 'Name',
+  'project.sort.created': 'Created',
+  'project.sort.active': 'Last active',
 }
 
 export default enUS

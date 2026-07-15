@@ -8,7 +8,7 @@
 // （渐变卡面 + focus 辉光环）、git 数据一律等宽字、行 hover 左导轨渐显、
 // 分区头沿用设计图纸体例、入场一次性 stagger。全部颜色走 index.css token。
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { App as AntApp, AutoComplete, Button, Input, Modal, Popconfirm, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd'
+import { App as AntApp, AutoComplete, Button, Input, Modal, Popconfirm, Segmented, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import { api } from './api'
 import { useI18n } from './i18n'
 import { usePreferences } from './preferences'
@@ -25,8 +25,12 @@ type ProjSession = { name: string; attached: boolean; lastActivity: number; bran
 type Proj = {
   key: string; name: string; dir: string; git: boolean; pinned: boolean
   sessions: number; attached: number; worktrees: number; unfinished: number; races: number
-  lastActivity: number; top: ProjSession[] | null
+  lastActivity: number; firstSeen: number; top: ProjSession[] | null
 }
+
+// 项目列表排序模式（置顶恒在最前；选择持久化）
+type ProjSort = 'name' | 'created' | 'active'
+const SORT_KEY = 'roam.projects.sort'
 
 // ── 页面级样式（一次注入；产品 token 之上只做布局/微交互）──
 const PRJ_CSS = `
@@ -201,6 +205,17 @@ function ProjectList({ data, loaded, openTerm, refresh }: {
   const { t } = useI18n()
   const { message } = AntApp.useApp()
   const [newOpen, setNewOpen] = useState(false)
+  const [sortBy, setSortBy] = useState<ProjSort>(() => {
+    try { return (localStorage.getItem(SORT_KEY) as ProjSort) || 'name' } catch { return 'name' }
+  })
+  const changeSort = (v: ProjSort) => { setSortBy(v); try { localStorage.setItem(SORT_KEY, v) } catch {} }
+  // 排序：置顶恒在最前；名称(默认,稳定)/创建时间(新在前)/最近活跃(新在前)
+  const sorted = useMemo(() => [...data.projects].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+    if (sortBy === 'created') return (b.firstSeen || 0) - (a.firstSeen || 0)
+    if (sortBy === 'active') return (b.lastActivity || 0) - (a.lastActivity || 0)
+    return a.name.localeCompare(b.name)
+  }), [data.projects, sortBy])
   const pin = async (p: Proj) => {
     try { await api('PATCH', `/projects/${encodeURIComponent(p.key)}/prefs`, { pinned: !p.pinned }); refresh() }
     catch (e: any) { message.error(e.message) }
@@ -215,6 +230,12 @@ function ProjectList({ data, loaded, openTerm, refresh }: {
       <div className="prj-wrap-wide">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 16, fontWeight: 700 }}>{t('project.title')}</span>
+          <Segmented size="small" value={sortBy} onChange={(v) => changeSort(v as ProjSort)}
+            options={[
+              { label: t('project.sort.name'), value: 'name' },
+              { label: t('project.sort.created'), value: 'created' },
+              { label: t('project.sort.active'), value: 'active' },
+            ]} />
           <span style={{ flex: 1 }} />
           <Button type="primary" size="small" onClick={() => setNewOpen(true)}>{t('project.newProject')}</Button>
         </div>
@@ -223,7 +244,7 @@ function ProjectList({ data, loaded, openTerm, refresh }: {
           <div className="prj-empty" style={{ textAlign: 'center', padding: '48px 0' }}>{t('project.empty')}</div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: 14 }}>
-          {data.projects.map((p, i) => (
+          {sorted.map((p, i) => (
             <div key={p.key} onClick={() => open(p)} className="prj-card prj-in" style={{ animationDelay: `${Math.min(i, 8) * 45}ms` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontWeight: 700, fontSize: 14.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
