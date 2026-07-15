@@ -106,16 +106,35 @@ const Term = forwardRef<TermHandle, {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'scroll', dir, lines }))
   }
 
-  const selectPaneAtClient = (clientX: number, clientY: number) => {
-    const t = termRef.current, el = elRef.current, ws = wsRef.current
-    if (!t || !el || !ws || ws.readyState !== 1 || t.cols <= 0 || t.rows <= 0) return
+  // 视口像素坐标 → 终端单元格坐标（与 tmux 窗口坐标一致）
+  const cellAt = (clientX: number, clientY: number) => {
+    const t = termRef.current, el = elRef.current
+    if (!t || !el || t.cols <= 0 || t.rows <= 0) return null
     const rect = el.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0) return
-    const col = Math.max(0, Math.min(t.cols - 1, Math.floor(((clientX - rect.left) / rect.width) * t.cols)))
-    const row = Math.max(0, Math.min(t.rows - 1, Math.floor(((clientY - rect.top) / rect.height) * t.rows)))
-    ws.send(JSON.stringify({ type: 'select-pane', col, row }))
+    if (rect.width <= 0 || rect.height <= 0) return null
+    return {
+      col: Math.max(0, Math.min(t.cols - 1, Math.floor(((clientX - rect.left) / rect.width) * t.cols))),
+      row: Math.max(0, Math.min(t.rows - 1, Math.floor(((clientY - rect.top) / rect.height) * t.rows))),
+    }
+  }
+
+  const selectPaneAtClient = (clientX: number, clientY: number) => {
+    const ws = wsRef.current, cell = cellAt(clientX, clientY)
+    if (!cell || !ws || ws.readyState !== 1) return
+    ws.send(JSON.stringify({ type: 'select-pane', ...cell }))
   }
   const selectPaneAt = (e: MouseEvent) => { if (e.button === 0) selectPaneAtClient(e.clientX, e.clientY) }
+
+  // 单击/轻点把远端光标移到点按的格子：镜像终端的光标在远端 TUI/shell 手里，点击本身移不动
+  // （此前只能靠丝带/键盘方向键一格格挪）。后端按 tmux 真实光标位置合成方向键，
+  // 对齐原生输入框「点哪光标到哪」的体验。
+  const sendMoveCursor = (clientX: number, clientY: number) => {
+    const t = termRef.current, ws = wsRef.current, cell = cellAt(clientX, clientY)
+    if (!t || !cell || !ws || ws.readyState !== 1) return
+    // 本地视口不在底部时行号对不上远端屏幕坐标（正常不会发生：滚动都交后端）
+    if (t.buffer.active.viewportY !== t.buffer.active.baseY) return
+    ws.send(JSON.stringify({ type: 'move-cursor', ...cell }))
+  }
 
   const connect = () => {
     if (unmounted.current) return
@@ -253,7 +272,14 @@ const Term = forwardRef<TermHandle, {
     let lastY = 0
     let acc = 0
     const lineH = () => (termRef.current?.options.fontSize || 13) * 1.3
-    const onTS = (e: TouchEvent) => { lastY = e.touches[0].clientY; acc = 0 }
+    // 轻点/单击(非拖选)判定用：起点坐标 + 触屏结束时间(去重触屏后浏览器补发的合成 mouse 事件)
+    let tapStart: { x: number; y: number } | null = null
+    let mouseDownAt: { x: number; y: number } | null = null
+    let lastTouchEndAt = 0
+    const onTS = (e: TouchEvent) => {
+      lastY = e.touches[0].clientY; acc = 0
+      tapStart = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null
+    }
     // 捕获阶段 + stopPropagation：开了 tmux mouse 后，xterm 会把滚轮/触摸转成
     // 鼠标事件发给 tmux，与我们的 copy-mode 滚动重复。这里抢先独占，避免双重滚动。
     const onTM = (e: TouchEvent) => {
@@ -271,12 +297,35 @@ const Term = forwardRef<TermHandle, {
     }
     const onMouseUp = (e: MouseEvent) => {
       const sel = termRef.current?.getSelection() || ''
-      if (sel.trim()) onSelectionMenu?.({ x: e.clientX, y: e.clientY, selection: sel })
+      if (sel.trim()) {
+        onSelectionMenu?.({ x: e.clientX, y: e.clientY, selection: sel })
+        mouseDownAt = null
+        return
+      }
+      // 左键单击(无拖选、无修饰键、几乎未移动) → 移光标到点按处；触屏 tap 已在 touchend 处理，
+      // 靠时间窗滤掉其后补发的合成 mouseup，避免重复移动。
+      if (e.button === 0 && mouseDownAt && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+        && performance.now() - lastTouchEndAt > 700
+        && Math.abs(e.clientX - mouseDownAt.x) < 5 && Math.abs(e.clientY - mouseDownAt.y) < 5) {
+        sendMoveCursor(e.clientX, e.clientY)
+      }
+      mouseDownAt = null
     }
     const onTouchEnd = (e: TouchEvent) => {
+      lastTouchEndAt = performance.now()
       const sel = termRef.current?.getSelection() || ''
       const t = e.changedTouches[0]
-      if (sel.trim() && t) onSelectionMenu?.({ x: t.clientX, y: t.clientY, selection: sel })
+      if (sel.trim() && t) {
+        onSelectionMenu?.({ x: t.clientX, y: t.clientY, selection: sel })
+        tapStart = null
+        return
+      }
+      // 单指轻点(所有手指已离屏、几乎未移动、无选区) → 移光标到点按处
+      if (t && tapStart && e.touches.length === 0
+        && Math.hypot(t.clientX - tapStart.x, t.clientY - tapStart.y) < 12) {
+        sendMoveCursor(t.clientX, t.clientY)
+      }
+      tapStart = null
     }
     // 右键改为 Roam 菜单：有选区时优先复制；无选区时提供粘贴/重连/tmux 常用动作。
     const onCtx = (e: MouseEvent) => {
@@ -294,6 +343,7 @@ const Term = forwardRef<TermHandle, {
         e.stopPropagation()
         return
       }
+      if (e.button === 0) mouseDownAt = { x: e.clientX, y: e.clientY }
       selectPaneAt(e)
     }
     el.addEventListener('touchstart', onTS, { passive: true, capture: true })
