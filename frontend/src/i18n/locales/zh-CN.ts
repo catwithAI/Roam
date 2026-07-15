@@ -61,6 +61,8 @@ const zhCN = {
   'terminal.manualPaste': '手动粘贴…',
   'terminal.scrollHistory': '上翻历史',
   'terminal.toBottom': '回到最新',
+  'terminal.redraw': '重绘画面（修复花屏错位）',
+  'terminal.redrawShort': '重绘',
   'terminal.reconnect': '重新连接',
   'terminal.tmuxCopyMode': 'tmux 复制模式',
   'terminal.tmuxWindowList': 'tmux 窗口列表',

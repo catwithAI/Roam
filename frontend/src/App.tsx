@@ -913,6 +913,7 @@ function TerminalPane(props: {
     { type: 'divider' as const },
     { key: 'scroll-up', label: t('terminal.scrollHistory') },
     { key: 'bottom', label: t('terminal.toBottom') },
+    { key: 'redraw', label: t('terminal.redraw') },
     { key: 'reconnect', label: t('terminal.reconnect') },
     { type: 'divider' as const },
     {
@@ -937,6 +938,7 @@ function TerminalPane(props: {
     else if (key === 'manual-paste') openManualPaste(ctx.session)
     else if (key === 'scroll-up') h?.scroll(-12)
     else if (key === 'bottom') h?.toBottom()
+    else if (key === 'redraw') h?.redraw()
     else if (key === 'reconnect') h?.reconnect()
     else h?.send(key)
     setCtx(null)
@@ -1026,6 +1028,7 @@ function TerminalPane(props: {
       <Tooltip title={t('terminal.toBottom')}><Button size="small" onClick={() => active && termRefs.current[active]?.toBottom()}>{t('terminal.bottomShort')}</Button></Tooltip>
       <Tooltip title={t('terminal.decreaseFont')}><Button size="small" onClick={() => setFontSize(Math.max(10, fontSize - 1))}>A-</Button></Tooltip>
       <Tooltip title={t('terminal.increaseFont')}><Button size="small" onClick={() => setFontSize(Math.min(22, fontSize + 1))}>A+</Button></Tooltip>
+      <Tooltip title={t('terminal.redraw')}><Button size="small" onClick={() => active && termRefs.current[active]?.redraw()}>{t('terminal.redrawShort')}</Button></Tooltip>
       <Tooltip title={t('terminal.reconnect')}><Button size="small" onClick={() => active && termRefs.current[active]?.reconnect()}>{t('terminal.reconnectShort')}</Button></Tooltip>
     </div>
   )
@@ -1085,6 +1088,8 @@ function TerminalPane(props: {
       {!inChat && (
         <div style={{ display: 'flex', gap: 6, padding: 8, borderTop: '1px solid var(--border)', overflowX: 'auto' }}>
           <Button type="primary" onMouseDown={noBlur} onClick={() => (isTouch ? submitLine() : sendKey('\r'))}>Enter</Button>
+          {/* 触屏没有 Ctrl+Shift+V / 右键菜单在长按选词后也不再弹出，丝带上补一个直达粘贴 */}
+          {isTouch && <Button onMouseDown={noBlur} onClick={() => active && pasteClipboard(active)} style={{ flex: '0 0 auto' }}>{t('terminal.pasteAction')}</Button>}
           {(prefsData.quickCommands || []).map((cmd) => (
             <Button key={cmd} onMouseDown={noBlur} onClick={() => { if (isTouch) { setLine(cmd); requestAnimationFrame(() => mobileInputRef.current?.focus()) } else { sendRaw(cmd) } }} style={{ flex: '0 0 auto' }}>{cmd}</Button>
           ))}
