@@ -46,6 +46,10 @@ func Manifest() manifest.Manifest {
 					Title:       manifest.LocaleText{"zh-CN": "默认评审 Agent", "en-US": "Default reviewer agent"},
 					Description: manifest.LocaleText{"zh-CN": "留空则自动选择(codex 优先)", "en-US": "Empty = auto (prefer codex)"},
 					Options:     []string{"", "codex", "claude"}},
+				{Key: "rounds",
+					Title:       manifest.LocaleText{"zh-CN": "自动互审轮次上限", "en-US": "Max auto-review rounds"},
+					Description: manifest.LocaleText{"zh-CN": "陪跑时同一会话最多自动互审几轮(留空=3,上限 20);单次可用 --rounds 覆盖", "en-US": "Max auto-review rounds per watched session (empty = 3, cap 20); override per run with --rounds"},
+					Placeholder: "3"},
 			},
 		},
 	}
