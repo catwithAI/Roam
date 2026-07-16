@@ -252,6 +252,8 @@ func (a *API) SessionWorktreeStatus(c *gin.Context) {
 				res["untracked"] = w.Untracked
 				res["committedAhead"] = w.CommittedAhead
 				res["external"] = w.External
+				res["mergedInto"] = w.MergedInto // 合入检测（10 §5）：W7 弹窗按此改文案
+				res["mergedKind"] = w.MergedKind
 			}
 		}
 	}
@@ -493,6 +495,15 @@ func (a *API) SessionCloseWithWorktree(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_REQUEST", "message": "path required for discard mode"}})
 			return
 		}
+		// 留痕素材趁 worktree 还在时先取：已合入的丢弃 = cleaned（零损失），否则 discarded
+		var gone *worktree.Worktree
+		if list, err := a.WT.List(ctx, b.Path); err == nil {
+			for i := range list {
+				if list[i].Path == b.Path {
+					gone = &list[i]
+				}
+			}
+		}
 		if err := kill(); err != nil {
 			fail("kill", err)
 			return
@@ -503,6 +514,18 @@ func (a *API) SessionCloseWithWorktree(c *gin.Context) {
 			return
 		}
 		stages = append(stages, "remove")
+		if gone != nil {
+			if repo, err := a.WT.ResolveRepo(ctx, filepath.Dir(b.Path)); err == nil {
+				action := "discarded"
+				if gone.MergedInto != "" {
+					action = "cleaned"
+				}
+				a.Projects.Trace(project.TraceEntry{
+					Repo: repo.Root, Branch: gone.Branch, HeadOid: gone.Head, Base: gone.Base,
+					Action: action, MergedInto: gone.MergedInto, MergedKind: gone.MergedKind,
+				})
+			}
+		}
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "BAD_MODE", "message": b.Mode}})
 		return

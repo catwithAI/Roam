@@ -923,6 +923,8 @@ const enUS = {
   'worktree.close.keep': 'Keep the worktree (handle it later in the manager)',
   'worktree.close.merge': 'Merge into {base} and delete',
   'worktree.close.discard': 'Discard changes and delete',
+  'worktree.close.discardMerged': 'Remove worktree and local branch — already merged into {target}, zero loss',
+  'worktree.close.mergeDisabledMerged': 'Already on the mainline, nothing to merge',
   'worktree.close.removeWithSession': 'Delete the worktree along with the session',
   'worktree.close.failedAtStage': '{msg} (stage: {stage})',
 

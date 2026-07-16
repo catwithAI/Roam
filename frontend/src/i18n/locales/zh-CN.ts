@@ -923,6 +923,8 @@ const zhCN = {
   'worktree.close.keep': '保留 worktree（稍后在管理页处理）',
   'worktree.close.merge': '合并回 {base} 并删除',
   'worktree.close.discard': '丢弃改动并删除',
+  'worktree.close.discardMerged': '删除 worktree 与本地分支——已合入 {target}，零损失',
+  'worktree.close.mergeDisabledMerged': '已在主干，无需再合',
   'worktree.close.removeWithSession': '随会话删除该 worktree',
   'worktree.close.failedAtStage': '{msg}（阶段:{stage}）',
 
