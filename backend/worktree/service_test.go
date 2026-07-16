@@ -354,6 +354,15 @@ func TestMergedDetection(t *testing.T) {
 		return Worktree{}
 	}
 
+	// ── 空 worktree：新建即秒判「已合入」的回归（HEAD==base tip，是 target 祖先）──
+	we, err := s.Create(ctx, CreateReq{Dir: repo, Branch: "roam/empty", Base: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := find(we.Path); w.MergedInto != "" {
+		t.Fatalf("empty worktree must NOT be merged, got %+v", w)
+	}
+
 	// ── S1 祖先：远端 main fast-forward 到任务分支，本地 main 不动 ──
 	wa, err := s.Create(ctx, CreateReq{Dir: repo, Branch: "roam/feat-a", Base: "main"})
 	if err != nil {
