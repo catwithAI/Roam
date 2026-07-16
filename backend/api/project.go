@@ -28,6 +28,7 @@ import (
 type projectSession struct {
 	Name         string `json:"name"`
 	Attached     bool   `json:"attached"`
+	Running      bool   `json:"running"` // 会话里跑着 claude/codex 进程——绿点语义（设计 W2）
 	LastActivity int64  `json:"lastActivity"`
 	Branch       string `json:"branch,omitempty"` // 落在 worktree 里才有
 	Linked       bool   `json:"linked,omitempty"`
@@ -125,10 +126,12 @@ func (a *API) ProjectsList(c *gin.Context) {
 	var nonGit []pending
 	var cwds map[string][]string // 懒取：有非 git 项目才拉
 
+	agentRunning := runningAgentSessions() // 一次进程树扫描，供绿点判活跃（设计 W2）
+
 	addSession := func(p *projectSummary, top *[]projectSession, name string, attached bool, last int64, branch string, linked bool) {
 		claimed[name] = true
 		p.Sessions++
-		ps := projectSession{Name: name, Attached: attached, LastActivity: last, Linked: linked, Branch: branch}
+		ps := projectSession{Name: name, Attached: attached, Running: agentRunning[name], LastActivity: last, Linked: linked, Branch: branch}
 		if ps.Attached {
 			p.Attached++
 		}
@@ -248,7 +251,7 @@ func (a *API) ProjectsList(c *gin.Context) {
 
 	for _, s := range sessions {
 		if !claimed[s.Name] {
-			loose = append(loose, projectSession{Name: s.Name, Attached: rawInt(s.Attached) > 0, LastActivity: rawInt(s.LastActivity)})
+			loose = append(loose, projectSession{Name: s.Name, Attached: rawInt(s.Attached) > 0, Running: agentRunning[s.Name], LastActivity: rawInt(s.LastActivity)})
 		}
 	}
 	// 散会话同样稳定排序（按名称）——活动时间只展示，不参与排序防跳变
