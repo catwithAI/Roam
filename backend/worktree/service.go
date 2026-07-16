@@ -1105,7 +1105,14 @@ func (s *Service) Remove(ctx context.Context, req RemoveReq) error {
 	path := canonical(req.Path)
 	repo, err := s.ResolveRepo(ctx, path)
 	if err != nil {
-		return err
+		// 半删残缺态（10 §7 实测）：上次删除半路失败后 gitfile 已没，从 path 解析
+		// 仓库必败。改从父目录解析，且必须仍在注册表里（worktree list 可见），
+		// 才允许继续走删除（后面的 git remove 失败会落入 RemoveAll 兜底）。
+		repo2, e2 := s.ResolveRepo(ctx, filepath.Dir(path))
+		if e2 != nil || !s.isRegisteredWorktree(ctx, repo2, path) {
+			return err
+		}
+		repo = repo2
 	}
 	if path == repo.Root {
 		return errf("MAIN_WORKTREE", "refusing to remove the main worktree")
@@ -1150,7 +1157,17 @@ func (s *Service) Remove(ctx context.Context, req RemoveReq) error {
 	}
 	args = append(args, "--", path)
 	if out, e := git(ctx, repo.Root, args...); e != nil {
-		return errf("WORKTREE_REMOVE_FAILED", "%s", out)
+		// 兜底（10 §7 实测）：git 删工作树半路失败（如删除中有并发写入 →
+		// Directory not empty）会留下「gitfile 已删、注册表还在」的卡死残缺态，
+		// 重试连 status 都跑不了。仅当调用方明示 force（破坏性意图明确）且 path
+		// 确为本仓库注册的 linked worktree 时，直接 RemoveAll + prune 收干净。
+		if !req.ForceWorktree || !s.isRegisteredWorktree(ctx, repo, path) {
+			return errf("WORKTREE_REMOVE_FAILED", "%s", out)
+		}
+		if rmErr := os.RemoveAll(path); rmErr != nil {
+			return errf("WORKTREE_REMOVE_FAILED", "%s; fallback rm: %v", out, rmErr)
+		}
+		_, _ = git(ctx, repo.Root, "worktree", "prune", "--expire", "now")
 	}
 	if (req.DeleteBranch || req.ForceDeleteBranch) && branch != "" && branch != "HEAD" {
 		flag := "-d"
@@ -1162,6 +1179,23 @@ func (s *Service) Remove(ctx context.Context, req RemoveReq) error {
 		}
 	}
 	return nil
+}
+
+// isRegisteredWorktree 校验 path 是本仓库注册的 linked worktree（含半删残缺态——
+// gitfile 没了注册表还在时 worktree list 依然列出）。RemoveAll 兜底前的安全闸。
+func (s *Service) isRegisteredWorktree(ctx context.Context, repo Repo, path string) bool {
+	out, err := git(ctx, repo.Root, "worktree", "list", "--porcelain")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if p, ok := strings.CutPrefix(line, "worktree "); ok {
+			if c := canonical(p); c == path && c != repo.Root {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Service) Prune(ctx context.Context, dir string) error {

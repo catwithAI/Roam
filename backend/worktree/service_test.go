@@ -417,3 +417,35 @@ func TestMergedDetection(t *testing.T) {
 		t.Fatalf("want aheadUnique=1 after followup, got %d", w.AheadUnique)
 	}
 }
+
+// 半删残缺态自愈（10 §7 实测）：git 删工作树半路失败会留下 gitfile 已删、注册表
+// 还在的卡死状态——Remove(force) 应能从父目录解析仓库并 RemoveAll+prune 收干净。
+func TestRemoveHalfDeadWorktree(t *testing.T) {
+	ctx := context.Background()
+	s := New()
+	repo := mkRepo(t)
+	wt, err := s.Create(ctx, CreateReq{Dir: repo, Branch: "roam/half-dead", Base: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 模拟半删：gitfile 没了、目录里还剩东西
+	if err := os.Remove(filepath.Join(wt.Path, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt.Path, "leftover.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(ctx, RemoveReq{Path: wt.Path, ForceWorktree: true, IgnoreSessions: true}); err != nil {
+		t.Fatalf("remove half-dead: %v", err)
+	}
+	if pathExists(wt.Path) {
+		t.Fatal("worktree dir should be gone")
+	}
+	out, err := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), wt.Path) {
+		t.Fatalf("registry entry should be pruned:\n%s", out)
+	}
+}
