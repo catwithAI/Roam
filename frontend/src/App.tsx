@@ -422,7 +422,7 @@ export default function App() {
   const pages: any = {
     overview: <OverviewPage openTerm={openTerm} />,
     swarm: <Swarm openTerm={openTerm} initialSwarm={swarmSub || undefined} onNav={(n) => { location.hash = n ? '#/swarm/' + encodeURIComponent(n) : '#/swarm' }} />,
-    projects: <Projects openTerm={openTerm} initialKey={projectSub || undefined} />,
+    projects: <Projects openTerm={openTerm} closeTerm={closeTerm} initialKey={projectSub || undefined} />,
     sessions: <Sessions openTerm={openTerm} closeTerm={closeTerm} activeTerm={active} />,
     files: <FilesPage openTerm={openTerm} />,
     settings: <EnvPage />,

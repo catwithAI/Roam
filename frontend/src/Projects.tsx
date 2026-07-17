@@ -136,7 +136,7 @@ export function Lifec({ done, cur }: { done: number; cur?: number }) {
   )
 }
 
-export default function Projects({ openTerm, initialKey }: { openTerm: (n: string) => void; initialKey?: string }) {
+export default function Projects({ openTerm, closeTerm, initialKey }: { openTerm: (n: string) => void; closeTerm: (n: string) => void; initialKey?: string }) {
   const [data, setData] = useState<{ projects: Proj[]; loose: ProjSession[] }>({ projects: [], loose: [] })
   const [loaded, setLoaded] = useState(false)
   const load = () => api('GET', '/projects').then((r) => {
@@ -149,7 +149,7 @@ export default function Projects({ openTerm, initialKey }: { openTerm: (n: strin
     <>
       <style>{PRJ_CSS}</style>
       {initialKey
-        ? <ProjectHome proj={data.projects.find((x) => x.key === initialKey)} loaded={loaded} openTerm={openTerm} refresh={load} />
+        ? <ProjectHome proj={data.projects.find((x) => x.key === initialKey)} loaded={loaded} openTerm={openTerm} closeTerm={closeTerm} refresh={load} />
         : <ProjectList data={data} loaded={loaded} openTerm={openTerm} refresh={load} />}
     </>
   )
@@ -429,8 +429,8 @@ function tailLine(raw: string): string {
 }
 
 // ── P2 项目主页：头部 + composer(hero) + 任务流/Worktree/编队/活动 ──
-function ProjectHome({ proj, loaded, openTerm, refresh }: {
-  proj?: Proj; loaded: boolean; openTerm: (n: string) => void; refresh: () => void
+function ProjectHome({ proj, loaded, openTerm, closeTerm, refresh }: {
+  proj?: Proj; loaded: boolean; openTerm: (n: string) => void; closeTerm: (n: string) => void; refresh: () => void
 }) {
   const { t } = useI18n()
   const { message } = AntApp.useApp()
@@ -713,7 +713,7 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
     if (!st?.inWorktree || st.external) {
       Modal.confirm({
         title: t('project.killConfirm', { name: n }),
-        onOk: async () => { try { await api('DELETE', '/sessions/' + encodeURIComponent(n)); message.success(t('session.closed')); refresh() } catch (e: any) { message.error(e.message) } },
+        onOk: async () => { try { await api('DELETE', '/sessions/' + encodeURIComponent(n)); message.success(t('session.closed')); closeTerm(n); refresh() } catch (e: any) { message.error(e.message) } },
       })
       return
     }
@@ -1199,7 +1199,7 @@ function ProjectHome({ proj, loaded, openTerm, refresh }: {
         <NewSessionModal open={fullForm || !!forking} parent={forking}
           onClose={() => { setFullForm(false); setForking(null) }}
           onDone={(n) => { openTerm(n); refresh() }} />
-        <CloseWorktreeModal info={closing} onClose={() => setClosing(null)} onDone={() => { setClosing(null); refresh() }} />
+        <CloseWorktreeModal info={closing} onClose={() => setClosing(null)} onDone={(name) => { closeTerm(name); setClosing(null); refresh() }} />
         <FinishModal w={finishing} base={defBranch} onClose={() => setFinishing(null)}
           onDone={() => { setFinishing(null); refresh() }} onRevive={(w) => newCli(w, 'shell')} />
         {/* 给指挥发话 = 广场署名 human 发言（08 §3），编排动作仍去蜂群台 */}
