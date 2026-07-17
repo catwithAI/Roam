@@ -2476,7 +2476,9 @@ function PhoneSettingsCard() {
       ? [{ label: t('phone.mode.local'), value: 'local' }, { label: t('phone.mode.remote'), value: 'remote' }, { label: t('phone.mode.device'), value: 'device' }]
       : [{ label: t('phone.ios.simulator'), value: 'simulator' }, { label: t('phone.ios.device'), value: 'device' }]
     const opts = (devs[p] || []).map((d: any) => ({ value: d.id, label: `${d.name} (${d.id})${d.kind && d.kind !== 'android' ? ' · ' + d.kind : ''}` }))
-    const changeSrc = (m: string) => patch(p, isA && m === 'local' ? { mode: m, address: 'localhost:5555' } : { mode: m })
+    // 切来源要连地址一起换：每种来源的目标地址各自独立(本地 redroid=loopback / 远程=待填 / 真机=默认设备)。
+    // 否则从「本地 redroid」切到「真机」会把 localhost:5555 带过去，adb 一直连不存在的 loopback，真机被忽略→连不上。
+    const changeSrc = (m: string) => patch(p, isA ? { mode: m, address: m === 'local' ? 'localhost:5555' : '' } : { mode: m, address: '' })
     return (
       <Card size="small" title={
         <Space align="center">
