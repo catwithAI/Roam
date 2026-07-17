@@ -5,92 +5,105 @@ import (
 	"time"
 )
 
-func TestValidateSchedule(t *testing.T) {
-	cases := []struct {
-		every, at string
-		ok        bool
-	}{
-		{"5m", "", true},
-		{"30s", "", true},
-		{"", "09:30", true},
-		{"", "23:59", true},
-		{"5m", "09:30", false}, // 两个都给
-		{"", "", false},        // 都不给
-		{"3s", "", false},      // 小于最小间隔
-		{"abc", "", false},     // 非法 duration
-		{"", "24:00", false},   // 小时越界
-		{"", "9:99", false},    // 分钟越界
-		{"", "0930", false},    // 缺冒号
+func TestParseCronValid(t *testing.T) {
+	valid := []string{
+		"* * * * *",
+		"*/5 * * * *",
+		"30 9 * * *",
+		"0 9 */3 * *",
+		"0 18 * * 1-5",
+		"0 0 1,15 * *",
+		"15,45 8-18 * * 0,6",
+		"0 0 * * 7", // 7=周日
 	}
-	for _, c := range cases {
-		err := validateSchedule(c.every, c.at)
-		if c.ok && err != nil {
-			t.Errorf("validateSchedule(%q,%q) 应通过,却报错: %v", c.every, c.at, err)
-		}
-		if !c.ok && err == nil {
-			t.Errorf("validateSchedule(%q,%q) 应报错,却通过", c.every, c.at)
+	for _, e := range valid {
+		if err := validateCron(e); err != nil {
+			t.Errorf("%q 应合法,却报错: %v", e, err)
 		}
 	}
 }
 
-func TestNextAfterInterval(t *testing.T) {
-	from := time.Date(2026, 7, 16, 10, 0, 0, 0, time.Local)
-	next, err := nextAfter(Job{Every: "5m"}, from)
-	if err != nil {
-		t.Fatal(err)
+func TestParseCronInvalid(t *testing.T) {
+	bad := []string{
+		"",
+		"* * * *",     // 段数不足
+		"* * * * * *", // 段数过多
+		"60 * * * *",  // 分越界
+		"* 24 * * *",  // 时越界
+		"* * 0 * *",   // 日下界越界(dom 从 1)
+		"* * * 13 *",  // 月越界
+		"* * * * 8",   // 周越界(0-7)
+		"5-2 * * * *", // 区间反了
+		"*/0 * * * *", // 步进为 0
+		"abc * * * *", // 非数值
 	}
-	if want := from.Add(5 * time.Minute); !next.Equal(want) {
-		t.Errorf("间隔型下次触发 = %v,想要 %v", next, want)
-	}
-}
-
-func TestNextAfterDaily(t *testing.T) {
-	// 当天时刻已过 → 顺延到明天
-	from := time.Date(2026, 7, 16, 10, 0, 0, 0, time.Local)
-	next, err := nextAfter(Job{At: "09:30"}, from)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := time.Date(2026, 7, 17, 9, 30, 0, 0, time.Local)
-	if !next.Equal(want) {
-		t.Errorf("每日型(已过)下次触发 = %v,想要 %v", next, want)
-	}
-
-	// 当天时刻未到 → 就在今天
-	next2, err := nextAfter(Job{At: "15:30"}, from)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want2 := time.Date(2026, 7, 16, 15, 30, 0, 0, time.Local)
-	if !next2.Equal(want2) {
-		t.Errorf("每日型(未到)下次触发 = %v,想要 %v", next2, want2)
+	for _, e := range bad {
+		if err := validateCron(e); err == nil {
+			t.Errorf("%q 应报错,却通过", e)
+		}
 	}
 }
 
-func TestAdvancePastCatchesUp(t *testing.T) {
-	now := time.Date(2026, 7, 16, 10, 0, 0, 0, time.Local)
-	// 排期停在 30 分钟前,间隔 5m:应快进到 now 之后的第一个整点,而不是补跑 6 次
-	j := Job{Every: "5m", NextRun: now.Add(-30 * time.Minute).Unix()}
-	next, err := advancePast(j, now)
-	if err != nil {
-		t.Fatal(err)
+func TestCronNextDaily(t *testing.T) {
+	loc := time.Local
+	// 每天 09:30;当前 08:00 → 今天 09:30
+	from := time.Date(2026, 7, 17, 8, 0, 0, 0, loc)
+	s, _ := parseCron("30 9 * * *")
+	got, _ := s.next(from)
+	want := time.Date(2026, 7, 17, 9, 30, 0, 0, loc)
+	if !got.Equal(want) {
+		t.Errorf("每天09:30(08:00起)= %v, 想要 %v", got, want)
 	}
-	if !next.After(now) {
-		t.Errorf("advancePast 应快进到 now 之后,得到 %v", next)
-	}
-	if d := next.Sub(now); d <= 0 || d > 5*time.Minute {
-		t.Errorf("快进后应落在下一个 <=5m 的间隔点内,得到间隔 %v", d)
+	// 当前 10:00(已过)→ 明天 09:30
+	got2, _ := s.next(time.Date(2026, 7, 17, 10, 0, 0, 0, loc))
+	want2 := time.Date(2026, 7, 18, 9, 30, 0, 0, loc)
+	if !got2.Equal(want2) {
+		t.Errorf("每天09:30(10:00起)= %v, 想要 %v", got2, want2)
 	}
 }
 
-func TestAdvancePastFreshInterval(t *testing.T) {
-	now := time.Date(2026, 7, 16, 10, 0, 0, 0, time.Local)
-	j := Job{Every: "1h", NextRun: 0}
-	next, err := advancePast(j, now)
-	if err != nil {
-		t.Fatal(err)
+func TestCronNextInterval(t *testing.T) {
+	loc := time.Local
+	// 每 5 分钟;08:02 → 08:05
+	s, _ := parseCron("*/5 * * * *")
+	got, _ := s.next(time.Date(2026, 7, 17, 8, 2, 30, 0, loc))
+	want := time.Date(2026, 7, 17, 8, 5, 0, 0, loc)
+	if !got.Equal(want) {
+		t.Errorf("每5分钟(08:02:30起)= %v, 想要 %v", got, want)
 	}
-	if want := now.Add(time.Hour); !next.Equal(want) {
-		t.Errorf("首次排期应为 now+1h = %v,得到 %v", want, next)
+}
+
+func TestCronNextWeekday(t *testing.T) {
+	loc := time.Local
+	// 工作日 18:00;2026-07-17 是周五 19:00 → 顺延到周一(07-20)18:00
+	s, _ := parseCron("0 18 * * 1-5")
+	from := time.Date(2026, 7, 17, 19, 0, 0, 0, loc) // 周五晚
+	got, _ := s.next(from)
+	want := time.Date(2026, 7, 20, 18, 0, 0, 0, loc) // 下周一
+	if !got.Equal(want) {
+		t.Errorf("工作日18:00(周五19:00起)= %v, 想要 %v", got, want)
+	}
+}
+
+func TestCronDomDowOr(t *testing.T) {
+	loc := time.Local
+	// 日=1 或 周=0(周日):都受限 → OR。2026-07-01 是周三(命中 dom=1)
+	s, _ := parseCron("0 0 1 * 0")
+	from := time.Date(2026, 6, 30, 12, 0, 0, 0, loc)
+	got, _ := s.next(from)
+	want := time.Date(2026, 7, 1, 0, 0, 0, 0, loc)
+	if !got.Equal(want) {
+		t.Errorf("dom=1|dow=0(6-30起)= %v, 想要 %v", got, want)
+	}
+}
+
+func TestCronNextStrictlyAfter(t *testing.T) {
+	loc := time.Local
+	// from 恰好是触发点 → 返回下一个,不是自己
+	s, _ := parseCron("*/5 * * * *")
+	from := time.Date(2026, 7, 17, 8, 5, 0, 0, loc)
+	got, _ := s.next(from)
+	if !got.After(from) {
+		t.Errorf("next 应严格晚于 from,得到 %v", got)
 	}
 }

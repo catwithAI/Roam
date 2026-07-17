@@ -7,14 +7,14 @@ func TestValidateAction(t *testing.T) {
 		job Job
 		ok  bool
 	}{
-		{Job{Action: "notify", Title: "站会提醒"}, true},
-		{Job{Action: "notify"}, false}, // 缺 title
 		{Job{Action: "agent", Prompt: "跑一遍测试"}, true},
 		{Job{Action: "agent"}, false}, // 缺 prompt
-		{Job{Action: "send", Session: "dev", Text: "醒醒"}, true},
-		{Job{Action: "send", Session: "dev"}, false}, // 缺 text
-		{Job{Action: "send", Text: "醒醒"}, false},     // 缺 session
-		{Job{Action: "bogus"}, false},                // 未知动作
+		{Job{Action: "exec", Command: "npm test"}, true},
+		{Job{Action: "exec"}, false},                // 缺 command
+		{Job{Action: "exec", Command: "  "}, false}, // 空白 command
+		{Job{Action: "notify"}, false},              // notify 动作已移除,视为未知
+		{Job{Action: "send"}, false},                // send 动作已移除,视为未知
+		{Job{Action: "bogus"}, false},               // 未知动作
 	}
 	for i, c := range cases {
 		err := validateAction(c.job)
@@ -27,11 +27,34 @@ func TestValidateAction(t *testing.T) {
 	}
 }
 
-func TestScheduleDesc(t *testing.T) {
-	if got := scheduleDesc(Job{Every: "5m"}); got != "每隔 5m" {
-		t.Errorf("scheduleDesc(every) = %q", got)
+// jobView 必须回带原始可编辑字段——设置页的「编辑」表单靠它回填,少一个
+// 用户就得从头填一遍(尤其 cron / prompt / interactive)。
+func TestJobViewCarriesEditableFields(t *testing.T) {
+	j := Job{
+		Name: "nightly", Cron: "0 9 */3 * *", Action: "agent", Enabled: true,
+		Provider: "claude", Prompt: "跑测试并总结", Workdir: "/repo", Interactive: true,
 	}
-	if got := scheduleDesc(Job{At: "09:30"}); got != "每天 09:30" {
-		t.Errorf("scheduleDesc(at) = %q", got)
+	v := jobView(j)
+	for k, want := range map[string]any{
+		"name": "nightly", "cron": "0 9 */3 * *", "schedule": "0 9 */3 * *",
+		"action": "agent", "provider": "claude", "prompt": "跑测试并总结",
+		"workdir": "/repo", "interactive": true, "enabled": true,
+	} {
+		if v[k] != want {
+			t.Errorf("jobView[%q] = %v(%T), want %v", k, v[k], v[k], want)
+		}
+	}
+	// exec 的字段键即使当前动作用不到也应存在(前端按 action 取用,不能缺键)
+	if _, ok := v["command"]; !ok {
+		t.Errorf("jobView 缺少键 command(前端回填会拿到 undefined)")
+	}
+}
+
+func TestTailStr(t *testing.T) {
+	if got := tailStr("short", 100); got != "short" {
+		t.Errorf("不超长应原样返回, got %q", got)
+	}
+	if got := tailStr("abcdefghij", 4); got != "…ghij" {
+		t.Errorf("超长应取末尾 4 字节并加省略号, got %q", got)
 	}
 }

@@ -1,7 +1,8 @@
 // Package cron is the builtin scheduled-task plugin. 它在插件私有 storage 里
 // 维护一张定时任务表,由常驻会话 cron.serve 按点巡检触发(或系统 crontab 周期
-// 调 cron.tick 无常驻触发)。每个任务到点执行三类动作之一:发通知、拉 Agent
-// 会话干活、给已有会话发消息。
+// 调 cron.tick 无常驻触发)。排期用标准 5 段 cron 表达式(见 schedule.go)。
+// 每个任务到点执行两类动作之一:定时启动 cc/codex 干活(可选保持交互会话)、
+// 或跑一条 shell 命令。
 //
 // 为什么不用 manifest 的 watchers/onSchedule:那套宿主调度器(docs/design/
 // plugin/08-roadmap.md 阶段 2)尚未落地。本插件复用既有的「常驻会话跑循环」
@@ -13,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,24 +27,20 @@ const storeKey = "jobs"
 // tickInterval 是 cron.serve 常驻循环的巡检周期。到期判定精度即此粒度。
 const tickInterval = 15 * time.Second
 
-// Job 是一条定时任务。every 与 at 二选一(见 validateSchedule)。
+// Job 是一条定时任务。排期由 Cron(5 段 cron 表达式)描述(见 schedule.go)。
 type Job struct {
 	Name    string `json:"name"`
-	Every   string `json:"every,omitempty"` // 间隔型:Go duration,如 5m / 1h
-	At      string `json:"at,omitempty"`    // 每日型:HH:MM(本机时区)
-	Action  string `json:"action"`          // notify | agent | send
+	Cron    string `json:"cron"`   // 标准 5 段 cron 表达式(见 schedule.go)
+	Action  string `json:"action"` // agent | exec
 	Enabled bool   `json:"enabled"`
 
-	// action=notify
-	Title string `json:"title,omitempty"`
-	Body  string `json:"body,omitempty"`
-	// action=agent
-	Provider string `json:"provider,omitempty"`
-	Prompt   string `json:"prompt,omitempty"`
-	Workdir  string `json:"workdir,omitempty"`
-	// action=send
-	Session string `json:"session,omitempty"`
-	Text    string `json:"text,omitempty"`
+	// action=agent(定时启动 cc/codex 干活)
+	Provider    string `json:"provider,omitempty"`
+	Prompt      string `json:"prompt,omitempty"`
+	Workdir     string `json:"workdir,omitempty"`
+	Interactive bool   `json:"interactive,omitempty"` // true=保持交互 TUI 会话(可 attach 续聊);默认跑完退出
+	// action=exec(定时跑 shell 命令,经 sh -lc)
+	Command string `json:"command,omitempty"`
 
 	NextRun int64 `json:"nextRun,omitempty"` // 下次触发(unix 秒)
 	LastRun int64 `json:"lastRun,omitempty"` // 上次触发(unix 秒)
@@ -53,12 +51,15 @@ type Job struct {
 func Activate(ctx *sdk.Ctx) sdk.Plugin {
 	return sdk.Plugin{
 		Commands: map[string]sdk.CommandHandler{
-			"add":    add,
-			"list":   list,
-			"remove": remove,
-			"run":    runNow,
-			"tick":   tick,
-			"serve":  serve,
+			"add":     add,
+			"list":    list,
+			"remove":  remove,
+			"enable":  enable,
+			"disable": disable,
+			"run":     runNow,
+			"preview": preview,
+			"tick":    tick,
+			"serve":   serve,
 		},
 	}
 }
@@ -94,33 +95,34 @@ func saveJobs(ctx *sdk.Ctx, jobs []Job) error {
 func add(ctx *sdk.Ctx, args map[string]string) (any, error) {
 	name := strings.TrimSpace(args["name"])
 	if name == "" {
-		return nil, fmt.Errorf("usage: cron.add --name <名> (--every <间隔>|--at HH:MM) [--action notify|agent|send] ...")
+		return nil, fmt.Errorf("usage: cron.add --name <名> --cron '<分 时 日 月 周>' [--action agent|exec] ...")
 	}
-	if err := validateSchedule(args["every"], args["at"]); err != nil {
+	cronExpr := strings.TrimSpace(args["cron"])
+	if err := validateCron(cronExpr); err != nil {
 		return nil, err
 	}
 	action := args["action"]
 	if action == "" {
-		action = "notify"
+		action = "agent"
 	}
 	job := Job{
 		Name:     name,
-		Every:    strings.TrimSpace(args["every"]),
-		At:       strings.TrimSpace(args["at"]),
+		Cron:     cronExpr,
 		Action:   action,
 		Enabled:  true,
-		Title:    args["title"],
-		Body:     args["body"],
 		Provider: args["provider"],
 		Prompt:   args["prompt"],
 		Workdir:  args["workdir"],
-		Session:  args["session"],
-		Text:     args["text"],
+		Command:  args["command"],
+	}
+	// --interactive true/1 → 拉 Agent 时保持交互会话(仅 action=agent 有意义)
+	if v := strings.TrimSpace(args["interactive"]); v == "true" || v == "1" {
+		job.Interactive = true
 	}
 	if err := validateAction(job); err != nil {
 		return nil, err
 	}
-	next, err := nextAfter(job, time.Now())
+	next, err := nextRun(job, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -133,8 +135,9 @@ func add(ctx *sdk.Ctx, args map[string]string) (any, error) {
 	replaced := false
 	for i := range jobs {
 		if jobs[i].Name == name {
-			// 更新时保留累计计数,其余字段整体替换
-			job.Runs, job.LastRun = jobs[i].Runs, jobs[i].LastRun
+			// 更新时保留累计计数与启停状态(启停由 enable/disable 专管,
+			// 编辑配置不该顺手把禁用的任务重新点亮),其余字段整体替换。
+			job.Runs, job.LastRun, job.Enabled = jobs[i].Runs, jobs[i].LastRun, jobs[i].Enabled
 			jobs[i] = job
 			replaced = true
 			break
@@ -150,8 +153,32 @@ func add(ctx *sdk.Ctx, args map[string]string) (any, error) {
 	if replaced {
 		verb = "已更新"
 	}
-	ctx.Logf("%s定时任务 %s(%s),下次触发 %s", verb, name, scheduleDesc(job), time.Unix(job.NextRun, 0).Format("2006-01-02 15:04:05"))
+	ctx.Logf("%s定时任务 %s(cron: %s),下次触发 %s", verb, name, job.Cron, time.Unix(job.NextRun, 0).Format("2006-01-02 15:04:05"))
 	return jobView(job), nil
+}
+
+// preview 不落库,给定一条 cron 表达式算出接下来几次触发时刻——供设置页的
+// 编辑器实时预览「这么配下次啥时候跑」。--cron <表达式> [--count N(默认5)]。
+func preview(ctx *sdk.Ctx, args map[string]string) (any, error) {
+	s, err := parseCron(strings.TrimSpace(args["cron"]))
+	if err != nil {
+		return nil, err
+	}
+	count := 5
+	if n, e := strconv.Atoi(strings.TrimSpace(args["count"])); e == nil && n > 0 && n <= 20 {
+		count = n
+	}
+	times := make([]string, 0, count)
+	t := time.Now()
+	for i := 0; i < count; i++ {
+		next, nerr := s.next(t)
+		if nerr != nil {
+			return nil, nerr
+		}
+		times = append(times, next.Format("2006-01-02 15:04:05"))
+		t = next
+	}
+	return map[string]any{"cron": strings.TrimSpace(args["cron"]), "next": times}, nil
 }
 
 // list 列出全部任务及下次触发时间(按下次触发时间升序)。
@@ -195,6 +222,48 @@ func remove(ctx *sdk.Ctx, args map[string]string) (any, error) {
 	}
 	ctx.Logf("已删除定时任务 %s", name)
 	return map[string]any{"removed": name}, nil
+}
+
+// enable 启用一条任务;若排期落后(禁用期间攒下的过期点),就地快进到未来的
+// 下一个触发点,避免一启用就立刻补跑。
+func enable(ctx *sdk.Ctx, args map[string]string) (any, error) { return setEnabled(ctx, args, true) }
+
+// disable 停用一条任务:保留配置与排期,只是巡检时不再触发。
+func disable(ctx *sdk.Ctx, args map[string]string) (any, error) { return setEnabled(ctx, args, false) }
+
+func setEnabled(ctx *sdk.Ctx, args map[string]string, on bool) (any, error) {
+	name := strings.TrimSpace(args["name"])
+	if name == "" {
+		return nil, fmt.Errorf("usage: cron.%s --name <名>", map[bool]string{true: "enable", false: "disable"}[on])
+	}
+	jobs, err := loadJobs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range jobs {
+		if jobs[i].Name != name {
+			continue
+		}
+		jobs[i].Enabled = on
+		if on {
+			// 重新算排期:禁用期间 NextRun 可能已成过去时,直接快进到未来。
+			next, nerr := nextRun(jobs[i], time.Now())
+			if nerr != nil {
+				return nil, nerr
+			}
+			jobs[i].NextRun = next.Unix()
+		}
+		if err := saveJobs(ctx, jobs); err != nil {
+			return nil, err
+		}
+		verb := "已启用"
+		if !on {
+			verb = "已停用"
+		}
+		ctx.Logf("%s定时任务 %s", verb, name)
+		return jobView(jobs[i]), nil
+	}
+	return nil, fmt.Errorf("没有名为 %q 的定时任务", name)
 }
 
 // runNow 立即触发一条任务一次,不改动它的排期(NextRun 不变),便于验证配置。
@@ -273,7 +342,7 @@ func tickOnce(ctx *sdk.Ctx) ([]string, error) {
 		} else {
 			fired = append(fired, j.Name)
 		}
-		next, nerr := advancePast(*j, now)
+		next, nerr := nextRun(*j, now)
 		if nerr != nil {
 			fmt.Fprintf(os.Stderr, "[%s] 任务 %s 排期推进失败,禁用: %v\n", nowStr(now), j.Name, nerr)
 			j.Enabled = false
@@ -295,30 +364,13 @@ func fireJob(ctx *sdk.Ctx, j *Job) (any, error) {
 	j.Runs++
 	j.LastRun = time.Now().Unix()
 	switch j.Action {
-	case "notify":
-		return fireNotify(ctx, j)
 	case "agent":
 		return fireAgent(ctx, j)
-	case "send":
-		return fireSend(ctx, j)
+	case "exec":
+		return fireExec(ctx, j)
 	default:
 		return nil, fmt.Errorf("未知动作 %q", j.Action)
 	}
-}
-
-func fireNotify(ctx *sdk.Ctx, j *Job) (any, error) {
-	if err := ctx.NotificationPublish(sdk.Notification{
-		Type:     "cron.reminder",
-		Severity: "info",
-		Title:    j.Title,
-		Body:     j.Body,
-		// 每次触发一个唯一 dedupeKey,否则同标题的周期提醒会被通知层去重吞掉
-		DedupeKey: fmt.Sprintf("cron.%s.%d", j.Name, j.Runs),
-	}); err != nil {
-		return nil, err
-	}
-	ctx.Logf("任务 %s 已发通知: %s", j.Name, j.Title)
-	return map[string]any{"action": "notify", "title": j.Title}, nil
 }
 
 func fireAgent(ctx *sdk.Ctx, j *Job) (any, error) {
@@ -331,23 +383,43 @@ func fireAgent(ctx *sdk.Ctx, j *Job) (any, error) {
 		Workdir:     j.Workdir,
 		Job:         "cron:" + j.Name,
 		Labels:      map[string]string{"cron": j.Name, "role": "cron-task"},
+		// 交互型:cc 跑完 prompt 后停在会话里等人 attach 续聊;否则跑完即退。
+		Interactive: j.Interactive,
 	})
 	if err != nil {
 		return nil, err
 	}
-	ctx.Logf("任务 %s 已拉起 Agent 会话 %s", j.Name, session)
-	return map[string]any{"action": "agent", "session": session}, nil
+	ctx.Logf("任务 %s 已拉起 Agent 会话 %s(interactive=%t)", j.Name, session, j.Interactive)
+	return map[string]any{"action": "agent", "session": session, "interactive": j.Interactive}, nil
 }
 
-func fireSend(ctx *sdk.Ctx, j *Job) (any, error) {
-	if !ctx.SessionAlive(j.Session) {
-		return nil, fmt.Errorf("目标会话 %s 不在,跳过", j.Session)
-	}
-	if err := ctx.SessionSend(j.Session, j.Text); err != nil {
+// fireExec 定时跑一条 shell 命令(经 sh -lc,好让 PATH/别名如 cc 解析)。
+// 长命令会阻塞调度循环到返回为止(host 侧同步执行,默认 600s 超时);重活请
+// 用 action=agent 或缩短命令。失败(exit≠0)时发一条通知让用户看得见。
+func fireExec(ctx *sdk.Ctx, j *Job) (any, error) {
+	res, err := ctx.CommandExec([]string{"sh", "-lc", j.Command}, 600)
+	if err != nil {
 		return nil, err
 	}
-	ctx.Logf("任务 %s 已向会话 %s 发送消息", j.Name, j.Session)
-	return map[string]any{"action": "send", "session": j.Session}, nil
+	ctx.Logf("任务 %s 跑命令完成 exit=%d", j.Name, res.Exit)
+	if res.Exit != 0 {
+		_ = ctx.NotificationPublish(sdk.Notification{
+			Type:      "cron.exec",
+			Severity:  "warning",
+			Title:     fmt.Sprintf("定时命令 %s 失败(exit=%d)", j.Name, res.Exit),
+			Body:      tailStr(res.Output, 600),
+			DedupeKey: fmt.Sprintf("cron.exec.%s.%d", j.Name, j.Runs),
+		})
+	}
+	return map[string]any{"action": "exec", "exit": res.Exit, "output": res.Output}, nil
+}
+
+// tailStr 取字符串末尾至多 n 字节(通知正文只需末段输出)。
+func tailStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
 }
 
 // ── 校验与展示 ──
@@ -355,40 +427,37 @@ func fireSend(ctx *sdk.Ctx, j *Job) (any, error) {
 // validateAction 校验动作类型及其必填字段。
 func validateAction(j Job) error {
 	switch j.Action {
-	case "notify":
-		if strings.TrimSpace(j.Title) == "" {
-			return fmt.Errorf("action=notify 需要 --title <标题>")
-		}
 	case "agent":
 		if strings.TrimSpace(j.Prompt) == "" {
 			return fmt.Errorf("action=agent 需要 --prompt <给 Agent 的指令>")
 		}
-	case "send":
-		if strings.TrimSpace(j.Session) == "" || strings.TrimSpace(j.Text) == "" {
-			return fmt.Errorf("action=send 需要 --session <会话名> 与 --text <消息>")
+	case "exec":
+		if strings.TrimSpace(j.Command) == "" {
+			return fmt.Errorf("action=exec 需要 --command <shell 命令>")
 		}
 	default:
-		return fmt.Errorf("action 只能是 notify | agent | send,得到 %q", j.Action)
+		return fmt.Errorf("action 只能是 agent | exec,得到 %q", j.Action)
 	}
 	return nil
 }
 
-// scheduleDesc 把排期渲染成一句人话。
-func scheduleDesc(j Job) string {
-	if j.Every != "" {
-		return "每隔 " + j.Every
-	}
-	return "每天 " + j.At
-}
-
-// jobView 是给 CLI/Web 展示的任务视图(含格式化的下次触发时间)。
+// jobView 是给 CLI/Web 展示的任务视图。除了渲染好的排期/触发时间,还回带原始
+// 配置字段(cron/prompt/provider…),好让设置页的「编辑」表单能回填已有配置——
+// 否则改个 prompt 都得从头填一遍。schedule 直接给 cron 表达式(前端负责humanize)。
 func jobView(j Job) map[string]any {
 	v := map[string]any{
 		"name":     j.Name,
-		"schedule": scheduleDesc(j),
+		"schedule": j.Cron,
+		"cron":     j.Cron,
 		"action":   j.Action,
 		"enabled":  j.Enabled,
 		"runs":     j.Runs,
+		// 原始可编辑字段(供设置页回填;空值也带上,前端按 action 取用)
+		"provider":    j.Provider,
+		"prompt":      j.Prompt,
+		"workdir":     j.Workdir,
+		"interactive": j.Interactive,
+		"command":     j.Command,
 	}
 	if j.NextRun > 0 {
 		v["nextRunAt"] = time.Unix(j.NextRun, 0).Format("2006-01-02 15:04:05")
