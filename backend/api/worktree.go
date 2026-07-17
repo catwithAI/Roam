@@ -252,6 +252,7 @@ func (a *API) SessionWorktreeStatus(c *gin.Context) {
 				res["untracked"] = w.Untracked
 				res["committedAhead"] = w.CommittedAhead
 				res["external"] = w.External
+				res["pushed"] = w.Pushed         // 三态细化：已提交/已推送
 				res["mergedInto"] = w.MergedInto // 合入检测（10 §5）：W7 弹窗按此改文案
 				res["mergedKind"] = w.MergedKind
 			}

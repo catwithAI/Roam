@@ -475,6 +475,72 @@ func TestMergedEmptyWorktreeRemoteOnlyBase(t *testing.T) {
 	t.Fatalf("worktree %s not in list", wt.Path)
 }
 
+// 三态细化（已提交→已推送→已合入）：Pushed 靠本地 origin/<branch> 跟踪 ref 判定。
+// 关键前提是 `git push` 成功后会更新对应 remote-tracking ref（git ≥1.8.4），故无需联网
+// 也无需 Sync 抓任务分支——本测试用本地 bare 当 origin 全程离线验证这条通路。
+func TestPushedDetection(t *testing.T) {
+	ctx := context.Background()
+	s := New()
+	repo := mkRepo(t)
+	gitIn := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(scrubGitEnv(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	gitIn(repo, "clone", "--bare", repo, origin)
+	gitIn(repo, "remote", "add", "origin", origin)
+
+	find := func(path string) Worktree {
+		t.Helper()
+		s.invalidate(Repo{CommonDir: canonical(filepath.Join(repo, ".git"))})
+		list, err := s.List(ctx, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range list {
+			if w.Path == path {
+				return w
+			}
+		}
+		t.Fatalf("worktree %s not in list", path)
+		return Worktree{}
+	}
+
+	wt, err := s.Create(ctx, CreateReq{Dir: repo, Branch: "roam/feat-p", Base: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitFile(t, wt.Path, "p.txt", "p\n", "feat p")
+
+	// 本地已提交、未推送：Pushed=false（origin/roam/feat-p 跟踪 ref 尚不存在）
+	if w := find(wt.Path); w.Pushed {
+		t.Fatalf("before push: want pushed=false, got %+v", w)
+	}
+
+	// push 成功后 remote-tracking ref 更新 → Pushed=true，但未合入（MergedInto 为空）
+	gitIn(wt.Path, "push", "-q", "origin", "roam/feat-p")
+	w := find(wt.Path)
+	if !w.Pushed {
+		t.Fatalf("after push: want pushed=true, got %+v", w)
+	}
+	if w.MergedInto != "" {
+		t.Fatalf("after push: still unmerged expected, got %+v", w)
+	}
+
+	// 推送后又长新提交 → HEAD 不再是 origin 祖先 → 翻回未推送
+	commitFile(t, wt.Path, "p2.txt", "p2\n", "feat p followup")
+	if w := find(wt.Path); w.Pushed {
+		t.Fatalf("after local followup: want pushed=false, got %+v", w)
+	}
+}
+
 // 半删残缺态自愈（10 §7 实测）：git 删工作树半路失败会留下 gitfile 已删、注册表
 // 还在的卡死状态——Remove(force) 应能从父目录解析仓库并 RemoveAll+prune 收干净。
 func TestRemoveHalfDeadWorktree(t *testing.T) {

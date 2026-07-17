@@ -207,6 +207,9 @@ type Worktree struct {
 	MergedKind  string `json:"mergedKind,omitempty"`  // ancestry(S1) | squash(S2 patch-id 等价)
 	RemoteGone  bool   `json:"remoteGone,omitempty"`  // S3：曾推送、远端分支现已删（仅佐证）
 	AheadUnique int    `json:"aheadUnique,omitempty"` // git cherry 的 + 数（补丁级真领先）
+	// 三态细化（已提交→已推送→已合入）：Pushed = 当前 HEAD 已落在 origin/<branch>，
+	// 把旧「待收尾」黄条里的「本地已提交未推送」与「已推送待合入」拆开（本地 ref 判定，无网络）。
+	Pushed bool `json:"pushed,omitempty"`
 }
 
 // ── Create ───────────────────────────────────────────────
@@ -523,6 +526,13 @@ func (s *Service) List(ctx context.Context, dir string) ([]Worktree, error) {
 			if w.Branch != "" && rs.heads != nil && !rs.heads[w.Branch] {
 				if _, e := git(ctx, w.Path, "rev-parse", "--verify", "-q", "refs/remotes/origin/"+w.Branch); e == nil {
 					w.RemoteGone = true
+				}
+			}
+			// 已推送：当前 HEAD 已是 origin/<branch> 的祖先（含相等）=提交都已在远端。
+			// 纯本地跟踪 ref 判定（Sync fetch 会刷新它），ref 不存在时 merge-base 报错→false。
+			if w.Branch != "" {
+				if _, e := git(ctx, w.Path, "merge-base", "--is-ancestor", "HEAD", "refs/remotes/origin/"+w.Branch); e == nil {
+					w.Pushed = true
 				}
 			}
 		}

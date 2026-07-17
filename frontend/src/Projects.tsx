@@ -639,6 +639,10 @@ function ProjectHome({ proj, loaded, openTerm, closeTerm, refresh }: {
   // 判据与后端概览 (api/project.go) 对齐：cleanable = 已合入 ∧ 无未提交改动，不看
   // committedAhead——S1 祖先(FF)合入 committedAhead==0 也算零损失可清，否则外层「可清理」
   // 计数与详情页对不上（详情把它落进「干净」桶、丢了已合入徽标）。
+  // git 生命周期三态细化（已提交→已推送→已合入）：pushed 来自后端本地 ref 判定，
+  // 把旧「待收尾」黄条里「本地已提交未推送」与「已推送待合入」拆成两态。
+  const wtStage = (w: any): 'merged' | 'pushed' | 'committed' | 'clean' =>
+    w?.mergedInto ? 'merged' : w?.committedAhead > 0 ? (w?.pushed ? 'pushed' : 'committed') : 'clean'
   const cleanable = orphans.filter((w: any) => w.mergedInto && !wtDirty(w))
   const unfinished = orphans.filter((w: any) => (w.committedAhead > 0 || wtDirty(w)) && !(w.mergedInto && !wtDirty(w)))
   const clean = orphans.filter((w: any) => !w.mergedInto && !(w.committedAhead > 0 || wtDirty(w)))
@@ -759,14 +763,16 @@ function ProjectHome({ proj, loaded, openTerm, closeTerm, refresh }: {
     const w = wtOf(s)
     const ahead = w?.committedAhead || 0
     const changes = (w?.dirty || 0) + (w?.untracked || 0)
-    const merged = !!w?.mergedInto
+    const gs = wtStage(w)
+    const merged = gs === 'merged'
     const running = cc[s.name] || cx[s.name]
     const waiting = needsInput[s.name]
     let done = 2, cur: number | undefined, stage = t('project.stage.idle')
     if (running && !waiting) { done = 1; cur = 2; stage = t('project.stage.doing') }
     else if (waiting) { done = 2; cur = 3; stage = t('project.stage.review') }
-    else if (merged) { done = 4; stage = t('project.stage.merged') } // 合入检测（10 §5）：导轨走满
-    else if (ahead > 0) { done = 2; cur = 3; stage = t('project.stage.review') }
+    else if (gs === 'merged') { done = 4; stage = t('project.stage.merged') } // 合入检测（10 §5）：导轨走满
+    else if (gs === 'pushed') { done = 3; cur = 4; stage = t('project.stage.pushed') } // 已推送待合入：审毕、并在跑
+    else if (gs === 'committed') { done = 2; cur = 3; stage = t('project.stage.committed') } // 本地已提交未推送
     return (
       <div key={s.name} className="prj-row prj-in" style={{ marginLeft: isChild ? 22 : 0, animationDelay: `${Math.min(i, 8) * 40}ms` }}
         onClick={() => openTerm(s.name)}>
@@ -795,6 +801,11 @@ function ProjectHome({ proj, loaded, openTerm, closeTerm, refresh }: {
             {merged && (
               <Tooltip title={`${w.mergedInto} · ${w.mergedKind}`}>
                 <span style={{ color: '#3fb950', fontSize: 11.5 }}>✓ {t('project.mergedTag')}</span>
+              </Tooltip>
+            )}
+            {gs === 'pushed' && (
+              <Tooltip title={hit.branch ? `origin/${hit.branch}` : undefined}>
+                <span style={{ color: '#58a6ff', fontSize: 11.5 }}>⇡ {t('project.pushedTag')}</span>
               </Tooltip>
             )}
             {(!merged && ahead > 0 || changes > 0) && (
@@ -962,9 +973,19 @@ function ProjectHome({ proj, loaded, openTerm, closeTerm, refresh }: {
                         <Tag color="success" style={{ margin: 0 }}>✓ {t('project.mergedTag')}</Tag>
                       </Tooltip>
                     )}
+                    {/* 三态细化：已推送未合入——蓝标区分「本地已提交」，收尾丢弃前知道远端还留着 */}
+                    {!w.mergedInto && w.pushed && (
+                      <Tooltip title={`origin/${w.branch}`}>
+                        <Tag color="blue" style={{ margin: 0 }}>⇡ {t('project.pushedTag')}</Tag>
+                      </Tooltip>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-dimmer)', flexWrap: 'wrap' }}>
-                    <Lifec done={2} cur={3} /><span>{t('project.stage.unfinished')}</span>
+                    {w.mergedInto
+                      ? <><Lifec done={2} cur={3} /><span>{t('project.stage.unfinished')}</span></>
+                      : w.pushed
+                        ? <><Lifec done={3} cur={4} /><span>{t('project.stage.pushed')}</span></>
+                        : <><Lifec done={2} cur={3} /><span>{t('project.stage.committed')}</span></>}
                     <span className="prj-mono" style={{ fontSize: 11.5 }}>
                       {w.mergedInto
                         ? <span style={{ color: '#d29922' }}>{t('project.wt.changes', { count: w.dirty + w.untracked })}</span>
