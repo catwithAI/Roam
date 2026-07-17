@@ -7,9 +7,9 @@
 // 视觉基调：终端工业风的克制精修——居中 880px 阅读列、composer 是全页唯一 hero
 // （渐变卡面 + focus 辉光环）、git 数据一律等宽字、行 hover 左导轨渐显、
 // 分区头沿用设计图纸体例、入场一次性 stagger。全部颜色走 index.css token。
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntApp, AutoComplete, Button, Input, Modal, Popconfirm, Segmented, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd'
-import { api } from './api'
+import { api, upload, makeClipboardImageFile } from './api'
 import { useI18n } from './i18n'
 import { usePreferences } from './preferences'
 import { detectPrompt } from './prompt'
@@ -458,6 +458,8 @@ function ProjectHome({ proj, loaded, openTerm, closeTerm, refresh }: {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [peeks, setPeeks] = useState<Record<string, string>>({})
   const [creating, setCreating] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
   const [wtOpen, setWtOpen] = useState(false)
   const [gitOpen, setGitOpen] = useState(false)
   const [fullForm, setFullForm] = useState(false)
@@ -652,6 +654,29 @@ function ProjectHome({ proj, loaded, openTerm, closeTerm, refresh }: {
   const unfinished = orphans.filter((w: any) => (w.committedAhead > 0 || wtDirty(w)) && !(w.mergedInto && !wtDirty(w)))
   const clean = orphans.filter((w: any) => !w.mergedInto && !(w.committedAhead > 0 || wtDirty(w)))
   const wtOf = (s: any) => wts.find((w: any) => w.path === ann[s.name]?.primary?.worktree)
+
+  // 图片上传到 /tmp 并把绝对路径插进需求框：开干时路径会随命令传给 agent，模型按绝对路径读图（同对话页 Ctrl+V）
+  const uploadImages = async (images: File[]) => {
+    if (!images.length || uploading) return
+    setUploading(true)
+    try {
+      const res = await upload('/tmp', images)
+      setPrompt((v) => (v ? v.replace(/\s*$/, ' ') : '') + res.saved.join(' ') + ' ')
+      message.success(t('chat.uploadedFiles', { count: images.length, dir: '/tmp' }))
+    } catch (e: any) { message.error(t('chat.uploadFailed', { message: e.message })) }
+    finally { setUploading(false) }
+  }
+
+  // Ctrl+V 粘贴图片：一次只取一张（同张截图常以多种 MIME 重复出现，全收会插入两次）
+  const onPasteComposer = (e: React.ClipboardEvent) => {
+    if (!e.clipboardData?.items) return
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.type.startsWith('image/')) {
+        const f = item.getAsFile()
+        if (f) { e.preventDefault(); uploadImages([makeClipboardImageFile(f, item.type, 0)]); return }
+      }
+    }
+  }
 
   // composer 提交：与 NewSessionModal 完全同款的派生/编排/命名约定（W1 修订 2/3/4）
   const goCreate = async () => {
@@ -866,8 +891,12 @@ function ProjectHome({ proj, loaded, openTerm, closeTerm, refresh }: {
         <div className="prj-composer prj-in" style={{ animationDelay: '60ms' }}>
           <Input.TextArea value={prompt} onChange={(e) => setPrompt(e.target.value)}
             placeholder={isGit ? t('project.composerPlaceholder') : t('project.composerPlain')} autoSize={{ minRows: 2, maxRows: 6 }} variant="borderless"
+            onPaste={onPasteComposer}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); goCreate() } }} />
+          <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+            onChange={(e) => { const fs = e.target.files ? Array.from(e.target.files) : []; e.target.value = ''; if (fs.length) uploadImages(fs) }} />
           <div className="prj-cbar">
+            <Button size="small" type="text" title={t('project.attachImage')} loading={uploading} onClick={() => fileRef.current?.click()} style={{ padding: '0 4px' }}>📎</Button>
             {isGit && (<>
               <span className={`prj-pill cyan${wtMode === 'new' ? ' on' : ''}`} onClick={() => setWtMode('new')}>⎇ {t('project.where.new')}</span>
               <span className={`prj-pill${wtMode === 'repo' ? ' on' : ''}`} onClick={() => setWtMode('repo')}>{t('project.where.repo')}</span>

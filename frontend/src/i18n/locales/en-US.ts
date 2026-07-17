@@ -1149,6 +1149,7 @@ const enUS = {
   'project.removeConfirm': 'Remove this project from the list? Directory, worktrees and sessions are untouched',
   'project.composerPlain': 'Describe a task and press Enter — opens a session in the project directory',
   'project.autoName': 'Name auto-derived',
+  'project.attachImage': 'Paste or pick an image (Ctrl+V works)',
   'project.basedOn': 'Based on {base}',
   'project.tab.race': 'Formations',
   'project.tab.activity': 'Activity',
