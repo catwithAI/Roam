@@ -1149,6 +1149,7 @@ const zhCN = {
   'project.removeConfirm': '从列表移除该项目？不动目录、worktree 与会话',
   'project.composerPlain': '描述任务，回车开干 —— 在项目目录里开一个会话',
   'project.autoName': '名称自动派生',
+  'project.attachImage': '粘贴或选图片（Ctrl+V 直接贴）',
   'project.basedOn': '基于 {base}',
   'project.tab.race': '编队',
   'project.tab.activity': '活动',
