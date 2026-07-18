@@ -13,6 +13,7 @@ export interface Preferences {
   codexCommand: string
   quickCommands: string[]
   showVoiceButton: boolean
+  overviewTab: 'projects' | 'sessions' // 概览页 项目/会话 切换 tab，记住上次选择
   _migrated: boolean
 }
 
@@ -28,6 +29,7 @@ const DEFAULTS: Preferences = {
   codexCommand: 'codex',
   quickCommands: [],
   showVoiceButton: true,
+  overviewTab: 'projects',
   _migrated: false,
 }
 
