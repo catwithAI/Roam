@@ -1153,6 +1153,7 @@ const zhCN = {
   'project.basedOn': '基于 {base}',
   'project.tab.race': '编队',
   'project.tab.activity': '活动',
+  'project.tab.files': '文件',
   'project.gitPanel': 'Git 面板',
   'project.stage.doing': '干活中',
   'project.stage.review': 'Review',

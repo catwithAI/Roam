@@ -1153,6 +1153,7 @@ const enUS = {
   'project.basedOn': 'Based on {base}',
   'project.tab.race': 'Formations',
   'project.tab.activity': 'Activity',
+  'project.tab.files': 'Files',
   'project.gitPanel': 'Git panel',
   'project.stage.doing': 'Working',
   'project.stage.review': 'Review',
