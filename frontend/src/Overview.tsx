@@ -3,13 +3,14 @@
 //   ② 统计条一排直达；③ 主体 = 活跃项目作战卡（内嵌 进行中任务前 3 + ⬡ 蜂群摘要 + 待收尾黄条）
 //   ④ 底部双列：散会话 ｜ 最近活动（跨项目 commit + 收尾留痕）
 // 数据全部复用现有接口（/projects、annotations、per-session 探测、/swarms 投影、activity），零新后端。
-import { useEffect, useMemo, useState } from 'react'
-import { Button, Tag } from 'antd'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Button, Segmented, Tag } from 'antd'
 import { api } from './api'
 import { useI18n } from './i18n'
 import { detectPrompt } from './prompt'
 import { relTime } from './App'
 import { Lifec, dot } from './Projects'
+import { usePreferences, savePreferences } from './preferences'
 
 const P6_CSS = `
 .p6-wrap{max-width:1180px;margin:0;padding:0 0 32px;display:flex;flex-direction:column;gap:12px}
@@ -64,8 +65,12 @@ type Proj = {
   lastActivity: number; firstSeen: number; top: { name: string }[] | null
 }
 
-export default function Overview({ openTerm }: { openTerm: (n: string) => void }) {
+export default function Overview({ openTerm, renderSessions }: { openTerm: (n: string) => void; renderSessions?: () => ReactNode }) {
   const { t } = useI18n()
+  // 项目/会话 切换 tab，选择记进偏好（跨设备记忆）。无会话视图（如手机 mini 场景不传）则退回项目视图。
+  const [prefs] = usePreferences()
+  const tab: 'projects' | 'sessions' = renderSessions && prefs.overviewTab === 'sessions' ? 'sessions' : 'projects'
+  const setTab = (v: 'projects' | 'sessions') => savePreferences({ overviewTab: v })
   const [projects, setProjects] = useState<Proj[]>([])
   const [loose, setLoose] = useState<any[]>([])
   const [sessions, setSessions] = useState<any[]>([])
@@ -113,6 +118,7 @@ export default function Overview({ openTerm }: { openTerm: (n: string) => void }
 
   // Agent 运行 + 待输入探测（只探项目内会话，上限 14 个防雪崩）
   useEffect(() => {
+    if (tab !== 'projects') return // 会话 tab 时列表页自行探测，避免双重轮询
     const names = projSess.map((s) => s.name).slice(0, 14)
     if (!names.length) return
     let stop = false
@@ -124,7 +130,7 @@ export default function Overview({ openTerm }: { openTerm: (n: string) => void }
     check()
     const i = setInterval(check, 6000)
     return () => { stop = true; clearInterval(i) }
-  }, [projSess.map((s) => s.name).join('\n')])
+  }, [tab, projSess.map((s) => s.name).join('\n')])
 
   // 蜂群投影（10s）：归属 = 指挥/成员会话 ∈ 某项目会话
   useEffect(() => {
@@ -224,14 +230,20 @@ export default function Overview({ openTerm }: { openTerm: (n: string) => void }
     <div style={{ height: '100%', overflow: 'auto' }}>
       <style>{P6_CSS}</style>
       <div className="p6-wrap">
-        {/* 标题行（品牌 hero 压缩）：主角是项目 */}
+        {/* 标题行（品牌 hero 压缩）：项目 / 会话 切换 tab（选择记进偏好） */}
         <div className="p6-in" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 16, fontWeight: 700 }}>{t('nav.overview')}</span>
-          <span style={{ fontSize: 12, color: 'var(--text-dimmer)' }}>{t('overview.activeHint', { count: activeProjects.length })}</span>
-          <span style={{ flex: 1 }} />
-          <Button size="small" onClick={goProjects}>{t('overview.gotoProjects')} →</Button>
+          {renderSessions
+            ? <Segmented size="small" value={tab} onChange={(v) => setTab(v as 'projects' | 'sessions')}
+                options={[{ label: t('nav.projects'), value: 'projects' }, { label: t('nav.sessions'), value: 'sessions' }]} />
+            : <span style={{ fontSize: 16, fontWeight: 700 }}>{t('nav.overview')}</span>}
+          {tab === 'projects' && <>
+            <span style={{ fontSize: 12, color: 'var(--text-dimmer)' }}>{t('overview.activeHint', { count: activeProjects.length })}</span>
+            <span style={{ flex: 1 }} />
+            <Button size="small" onClick={goProjects}>{t('overview.gotoProjects')} →</Button>
+          </>}
         </div>
 
+        {tab === 'sessions' ? renderSessions!() : <>
         {/* ①「需要你」横幅：零事项整条消失 */}
         {attention.length > 0 && (
           <div className="p6-attn p6-in" style={{ animationDelay: '50ms' }}>
@@ -343,6 +355,7 @@ export default function Overview({ openTerm }: { openTerm: (n: string) => void }
             </div>
           )}
         </div>
+        </>}
       </div>
     </div>
   )
