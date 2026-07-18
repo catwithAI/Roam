@@ -14,6 +14,7 @@ import { useI18n } from './i18n'
 import { usePreferences } from './preferences'
 import { detectPrompt } from './prompt'
 import { relTime, taskNameFromPrompt, shq, NewSessionModal, DirPicker, recentDirs, pushRecentDir, CloseWorktreeModal } from './App'
+import FileBrowser from './FileBrowser'
 
 const WorktreePanel = lazy(() => import('./WorktreePanel'))
 const GitPanel = lazy(() => import('./GitPanel'))
@@ -435,7 +436,7 @@ function ProjectHome({ proj, allProjects, loaded, openTerm, closeTerm, refresh }
   const { t } = useI18n()
   const { message } = AntApp.useApp()
   const [prefs] = usePreferences()
-  const [tab, setTab] = useState<'tasks' | 'wt' | 'race' | 'act'>('tasks')
+  const [tab, setTab] = useState<'tasks' | 'wt' | 'race' | 'act' | 'files'>('tasks')
   const [prompt, setPrompt] = useState('')
   const [wtMode, setWtMode] = useState<'new' | 'repo' | 'existing'>('new')
   const [agent, setAgent] = useState<'claude' | 'codex' | 'none'>('claude')
@@ -727,10 +728,14 @@ function ProjectHome({ proj, allProjects, loaded, openTerm, closeTerm, refresh }
     } catch (e: any) { message.error(e.message) }
   }
   // 纯命令行：项目目录里开一个裸 shell 会话（同名已存在则直接进入，不重复建）
+  // ＋命令行：每次都开一个新命令行会话（一个项目可有多个）；名字冲突就递增后缀。
+  // 已开的命令行会话 cwd 落在项目根，annotation 归属本项目 → 都列在「任务」活动区，可再进入。
   const newShell = async () => {
     if (!proj) return
-    const name = proj.name + '-sh'
-    if (sessions.some((s) => s.name === name)) { openTerm(name); return }
+    const base = proj.name + '-sh'
+    const taken = new Set(sessions.map((s) => s.name))
+    let name = base
+    for (let i = 2; taken.has(name); i++) name = base + i
     try {
       const res = await api('POST', '/sessions', { name, dir })
       message.success(t('session.created')); openTerm(res.name || name); refresh()
@@ -930,6 +935,7 @@ function ProjectHome({ proj, allProjects, loaded, openTerm, closeTerm, refresh }
           {isGit && tabBtn('wt', 'Worktree', wts.length)}
           {isGit && tabBtn('race', t('project.tab.race'), races.length + swarms.length)}
           {isGit && tabBtn('act', t('project.tab.activity'))}
+          {tabBtn('files', t('project.tab.files'))}
         </div>
 
         {/* ── 任务流 ── */}
@@ -1233,6 +1239,17 @@ function ProjectHome({ proj, allProjects, loaded, openTerm, closeTerm, refresh }
             ))}
             {activity.length === 0 && <div className="prj-empty">{t('project.act.empty')}</div>}
             <div style={{ fontSize: 11.5, color: 'var(--text-dimmer)', padding: '8px 12px', borderTop: '1px dashed var(--border-subtle)' }}>{t('project.act.hint')}</div>
+          </div>
+        )}
+
+        {/* ── 文件浏览 ── split 是 height:100% 的组件，需给有界高度的父容器；预留头/Composer/Tab 占位 */}
+        {tab === 'files' && (
+          <div className="prj-panel prj-in" style={{ height: 'calc(100vh - 300px)', minHeight: 420, overflow: 'hidden', padding: 0 }}>
+            <FileBrowser
+              dir={proj.dir}
+              layout="split"
+              onInsertPath={(p) => setPrompt((cur) => (cur ? cur.replace(/\s*$/, ' ') : '') + '@' + p + ' ')}
+            />
           </div>
         )}
 
