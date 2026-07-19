@@ -1,9 +1,12 @@
 // 文件侧栏 —— 在 Claude / Codex 对话页右侧浏览工作目录、查看文件内容（类似 codex 右侧边栏）。
 // 单层可导航列表：目录在前可进入、↑ 回上级、点文件在弹层里查看正文。
 import { type ReactNode, Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { AutoComplete, Button, ConfigProvider, Dropdown, Input, Modal, Spin, App as AntApp, Tooltip, type MenuProps } from 'antd'
+import { AutoComplete, Button, ConfigProvider, Dropdown, Grid, Input, Modal, Spin, App as AntApp, Tooltip, type MenuProps } from 'antd'
 import { api, upload } from './api'
 import { useI18n } from './i18n'
+import { download as p2pDownload } from './p2p/download'
+import { pathLabelKey, type P2PPathLabel } from './p2p/labels'
+import { P2PTransferStatus, type TransferView } from './p2p/P2PTransferStatus'
 import { recentDirs } from './App'
 import { dirname, fileNameOf, fmtSize, joinPath, normalizePath } from './file-utils'
 import { copyText } from './chat/blocks'
@@ -324,6 +327,8 @@ export default function FileBrowser({
   const [contextPath, setContextPath] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false) // 隐藏文件（点号开头）默认不显示，眼睛开关切换
   const [sortKey, setSortKey] = useState<SortKey>('name')
+  // P2P 传输可见状态：按 transferId 维护进行中的下载，展示角标/进度/详情（§5.7）。
+  const [transfers, setTransfers] = useState<TransferView[]>([])
   // 递归按文件名搜索（当前目录向下），放大镜开关切换；有查询词时列表区改显搜索结果。
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -345,6 +350,7 @@ export default function FileBrowser({
   const uploadTargetRef = useRef<string | null>(null)
   const { message, modal } = AntApp.useApp()
   const { t, locale } = useI18n()
+  const isMobile = !Grid.useBreakpoint().md // 手机护栏：窄屏视作移动端
 
   // 会话切换（dir 变化）→ 回到工作目录根，并重置历史
   useEffect(() => {
@@ -543,13 +549,47 @@ export default function FileBrowser({
     uploadTargetRef.current = target.dir ? target.path : dirname(target.path)
     fileRef.current?.click()
   }
-  const downloadEntry = (target: FileTarget) => {
+  // legacy：系统 a[download]（走 frp）。手机护栏命中或不支持 File System Access 时用它。
+  const legacyAnchorDownload = (target: FileTarget) => {
     const a = document.createElement('a')
     a.href = `/api/file/download?path=${encodeURIComponent(target.path)}`
     a.download = target.dir ? `${target.name}.zip` : target.name
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
+  }
+  // 更新某条传输的视图字段（按 transferId 合并）。
+  const patchTransfer = (id: string, patch: Partial<TransferView>) =>
+    setTransfers((list) => list.map((tf) => (tf.id === id ? { ...tf, ...patch } : tf)))
+  const dropTransfer = (id: string) => setTransfers((list) => list.filter((tf) => tf.id !== id))
+  const downloadEntry = (target: FileTarget) => {
+    // 手机护栏（技术拆解 §4.5）：目录、无 showSaveFilePicker、或 (移动端 && >50MB)
+    // → 直接走 legacy 系统下载；否则走 P2P 直连状态机（picker 先行 + 回退写同一 handle）。
+    const tooBigOnMobile = isMobile && !target.dir && target.size > 50 * 1024 * 1024
+    if (target.dir || !('showSaveFilePicker' in window) || tooBigOnMobile) {
+      legacyAnchorDownload(target)
+      return
+    }
+    // 一条可见传输：先建条目（negotiating），download.ts 各回调实时刷角标/进度/详情。
+    const id = `${target.path}#${Date.now()}`
+    const initial: TransferView = { id, name: target.name, state: 'negotiating', fellBack: false }
+    setTransfers((list) => [...list, initial])
+    void p2pDownload({ path: target.path, name: target.name, size: target.size }, {
+      onState: (state) => patchTransfer(id, { state }),
+      onFallback: (reason) => { patchTransfer(id, { fellBack: true, fallbackReason: reason }); message.info(t('p2p.fellBackToHttp')) },
+      onPath: (label: P2PPathLabel) => {
+        patchTransfer(id, { path: label })
+        if (label !== 'frp') message.success(t('p2p.connectedVia', { path: t(pathLabelKey(label)) }))
+      },
+      onProgress: (p) => patchTransfer(id, { progress: p }),
+      onDiagnostics: (d) => patchTransfer(id, { diag: d }),
+      onDone: () => {
+        message.success(t('p2p.downloadDone', { name: target.name }))
+        // 完成后短暂保留完成态，随后移除角标。
+        window.setTimeout(() => dropTransfer(id), 4000)
+      },
+      onError: (msg) => { message.error(t('p2p.downloadFailed', { message: msg })); dropTransfer(id) },
+    })
   }
   const showProperties = async (target: FileTarget) => {
     setPropertiesTarget(target)
@@ -787,6 +827,7 @@ export default function FileBrowser({
         </>
         )}
       </div>
+      <P2PTransferStatus transfers={transfers} onDismiss={dropTransfer} />
       <Modal
         open={mkdirOpen}
         title={t('file.newFolder')}
