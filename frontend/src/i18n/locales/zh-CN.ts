@@ -233,7 +233,7 @@ const zhCN = {
   'settings.p2pHelp': '开启后 下载、镜像等重流量走 P2P 直连、绕过 frp 云带宽；关闭则一律经 frp 中转。网络抖动或异常时可关。',
   'settings.p2pStun': 'STUN 服务器',
   'settings.p2pStunPh': 'stun:stun.cloudflare.com:3478, stun:...（留空用服务端默认）',
-  'settings.p2pStunHelp': '逗号或空格分隔。留空则用服务端下发的默认 STUN；仅影响本浏览器侧打洞。',
+  'settings.p2pStunHelp': '默认已填服务端 STUN；可改成自定义，清空则跟随服务端。逗号/空格分隔，仅影响本浏览器侧打洞。',
   'settings.p2pTimeout': '连接超时',
   'settings.p2pTimeoutUnit': '秒',
   'settings.p2pTimeoutHelp': '打洞建链超过此时间未连上即回退 frp（默认 30；跨网建议 ≥20）。',

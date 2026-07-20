@@ -2315,7 +2315,21 @@ function PromptPopupCard() {
 function P2PCard() {
   const { t } = useI18n()
   const [prefs, setPrefs] = usePreferences()
+  const [serverStun, setServerStun] = useState('')
+  // 拉服务端默认 STUN 预填进输入框（用户未自定义时展示当前默认；改了才存自定义偏好）。
+  useEffect(() => {
+    fetch('/api/p2p/config', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const cfg = d?.data ?? d ?? {}
+        const urls = (cfg.iceServers || []).flatMap((s: { urls?: string | string[] }) => (Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [])).filter(Boolean)
+        if (urls.length) setServerStun(urls.join(', '))
+      })
+      .catch(() => { /* ignore */ })
+  }, [])
   const on = prefs.p2pEnabled
+  // 输入框展示：用户自定义优先，否则预填服务端默认。留空(未自定义)时 transport 仍走服务端默认。
+  const stunValue = prefs.p2pStunServers || serverStun
   const dim = { color: 'var(--text-dim)', fontSize: 12 }
   const hint = { color: 'var(--text-dimmer)', fontSize: 11 }
   return (
@@ -2329,7 +2343,7 @@ function P2PCard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5, opacity: on ? 1 : 0.5 }}>
           <span style={dim}>{t('settings.p2pStun')}</span>
           <Input
-            disabled={!on} allowClear value={prefs.p2pStunServers}
+            disabled={!on} allowClear value={stunValue}
             placeholder={t('settings.p2pStunPh')}
             onChange={(e) => setPrefs({ p2pStunServers: e.target.value })}
             style={{ maxWidth: 460 }}

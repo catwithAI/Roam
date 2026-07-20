@@ -233,7 +233,7 @@ const enUS = {
   'settings.p2pHelp': 'When enabled, downloads, mirroring and other heavy traffic use a P2P direct connection to bypass frp bandwidth; disable to route everything through the frp relay. Turn off on flaky networks.',
   'settings.p2pStun': 'STUN servers',
   'settings.p2pStunPh': 'stun:stun.cloudflare.com:3478, stun:... (empty = server default)',
-  'settings.p2pStunHelp': 'Comma/space separated. Empty uses the server default STUN; affects this browser only.',
+  'settings.p2pStunHelp': 'Pre-filled with the server default; edit to customize, clear to follow the server. Comma/space separated; affects this browser only.',
   'settings.p2pTimeout': 'Connect timeout',
   'settings.p2pTimeoutUnit': 's',
   'settings.p2pTimeoutHelp': 'Fall back to frp if hole-punching does not connect within this time (default 30).',
