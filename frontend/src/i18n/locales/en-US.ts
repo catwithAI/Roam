@@ -238,6 +238,8 @@ const enUS = {
   'settings.p2pTimeout': 'Connect timeout',
   'settings.p2pTimeoutUnit': 's',
   'settings.p2pTimeoutHelp': 'Fall back to frp if hole-punching does not connect within this time (default 30).',
+  'settings.p2pGather': 'Candidate gather cap',
+  'settings.p2pGatherHelp': 'How long to wait for STUN reflexive (srflx) candidates before connecting. Mobile/cellular srflx is slow — too small drops it and forces relay; raise it (default 30).',
   'update.newVersion': 'New version available',
   'update.later': 'Later',
   'file.openedInAgent': 'Opened in {agent}',

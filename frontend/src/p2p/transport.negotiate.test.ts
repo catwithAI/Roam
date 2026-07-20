@@ -47,7 +47,8 @@ describe('waitForIceGathering (non-trickle)', () => {
     try {
       const pc = new FakePC()
       let resolved = false
-      const p = waitForIceGathering(pc as unknown as RTCPeerConnection).then(() => { resolved = true })
+      // 传显式上限 4s（不依赖可配默认值）。
+      const p = waitForIceGathering(pc as unknown as RTCPeerConnection, 4_000).then(() => { resolved = true })
       pc.setState('gathering')
       await Promise.resolve()
       expect(resolved).toBe(false)

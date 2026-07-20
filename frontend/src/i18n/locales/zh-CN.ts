@@ -238,6 +238,8 @@ const zhCN = {
   'settings.p2pTimeout': '连接超时',
   'settings.p2pTimeoutUnit': '秒',
   'settings.p2pTimeoutHelp': '打洞建链超过此时间未连上即回退 frp（默认 30；跨网建议 ≥20）。',
+  'settings.p2pGather': '候选收集上限',
+  'settings.p2pGatherHelp': '等 STUN 反射地址(srflx)最多这么久再发起连接。手机蜂窝 srflx 慢，太小会丢 srflx 导致跨网只能中转，可调大（默认 30）。',
   'update.newVersion': '有新版本',
   'update.later': '稍后',
   'file.openedInAgent': '已在 {agent} 中打开',

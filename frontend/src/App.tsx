@@ -2363,6 +2363,18 @@ function P2PCard() {
             <span style={hint}>{t('settings.p2pTimeoutHelp')}</span>
           </Space>
         </div>
+        {/* 候选收集(gather)上限（秒）：慢网(手机蜂窝 srflx 迟到)可调大。 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, opacity: on ? 1 : 0.5 }}>
+          <span style={dim}>{t('settings.p2pGather')}</span>
+          <Space align="center" wrap>
+            <InputNumber
+              disabled={!on} min={3} max={300} step={5} value={prefs.p2pGatherTimeoutSec}
+              onChange={(v) => setPrefs({ p2pGatherTimeoutSec: typeof v === 'number' ? v : 30 })}
+              addonAfter={t('settings.p2pTimeoutUnit')} style={{ width: 130 }}
+            />
+            <span style={hint}>{t('settings.p2pGatherHelp')}</span>
+          </Space>
+        </div>
       </Space>
     </Card>
   )

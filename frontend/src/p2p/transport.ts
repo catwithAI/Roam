@@ -22,10 +22,17 @@ const P2P_DEBUG = import.meta.env.DEV
 function dlog(...args: unknown[]) { if (P2P_DEBUG) console.log(...args) }
 
 // 非 trickle（P0-2）：ICE gathering 完成才发 offer/answer 完整 SDP。等 iceGatheringState==='complete'，
-// 或到 GATHER_TIMEOUT_MS 上限（跨网 srflx 偶尔迟迟不 complete）就用当前 pc.localDescription 兜底发出。
-const GATHER_TIMEOUT_MS = 4_000
-// exported for unit test（非产品 API）。
-export function waitForIceGathering(peer: RTCPeerConnection): Promise<void> {
+// 或到 gather 上限就用当前 pc.localDescription 兜底发出。
+// gather 上限可配（设置页 p2pGatherTimeoutSec，默认 30s）：STUN 正常时 gathering 1–2s 就 complete、
+// 立刻发（LAN/快网不受影响）；只有慢网（如手机蜂窝 srflx 迟迟不来）才等满。太短会在 srflx 还没
+// gather 出来时就发 SDP → srflx 丢失 → 跨网只能中转。connect 计时器已设为 gather+connect，不会误判。
+const DEFAULT_GATHER_TIMEOUT_MS = 30_000
+function gatherTimeoutMs() {
+  const s = getPreferences().p2pGatherTimeoutSec
+  return typeof s === 'number' && s >= 3 && s <= 300 ? s * 1000 : DEFAULT_GATHER_TIMEOUT_MS
+}
+// exported for unit test（非产品 API）；timeoutMs 缺省用 gatherTimeoutMs()（设置页可配）。
+export function waitForIceGathering(peer: RTCPeerConnection, timeoutMs = gatherTimeoutMs()): Promise<void> {
   if (peer.iceGatheringState === 'complete') return Promise.resolve()
   return new Promise((resolve) => {
     let done = false
@@ -39,7 +46,7 @@ export function waitForIceGathering(peer: RTCPeerConnection): Promise<void> {
     const onChange = () => { if (peer.iceGatheringState === 'complete') finish() }
     peer.addEventListener('icegatheringstatechange', onChange)
     // 上限兜底：超时用已 gather 的候选（当前 localDescription）发出，不无限等。
-    const timer = setTimeout(finish, GATHER_TIMEOUT_MS)
+    const timer = setTimeout(finish, timeoutMs)
   })
 }
 
@@ -266,7 +273,7 @@ async function negotiate() {
     console.log(`[p2p-ice control] connect timeout with no progress (gathering=${gathering} ice=${ice}); scheduling reconnect`)
     setStatus({ state: 'relay', path: 'frp' })
     scheduleReconnect()
-  }, connectTimeoutMs())
+  }, gatherTimeoutMs() + connectTimeoutMs()) // gather 有独立预算，连通性检查再享 connect 预算
 
   // 非 trickle（P0-2）：不再逐个 wsSend 候选——offer 会等 gathering 完成后一次性带全部候选发出。
   // 这里只保留候选诊断日志（dev-gate）。
@@ -448,7 +455,7 @@ async function negotiateMedia() {
     console.log(`[p2p-ice media] connect timeout with no progress (gathering=${gathering} ice=${ice}); scheduling reconnect`)
     setMedia('relay')
     scheduleMediaReconnect()
-  }, connectTimeoutMs())
+  }, gatherTimeoutMs() + connectTimeoutMs()) // gather 有独立预算，连通性检查再享 connect 预算
 
   // 非 trickle（P0-2）：不再逐个 wsSend 候选；offer 等 gathering 完成后一次性带全部候选发出。
   peer.onicecandidate = (e) => { logLocalCandidate('media', e.candidate) }
@@ -669,7 +676,7 @@ export async function connectFile(opts: ConnectFileOptions): Promise<FilePeer> {
       console.log(`[p2p-ice file] connect timeout with no progress (gathering=${gathering} ice=${ice}); falling back`)
     }
     fail('timeout')
-  }, connectTimeoutMs())
+  }, gatherTimeoutMs() + connectTimeoutMs()) // gather 有独立预算，连通性检查再享 connect 预算
 
   // 非 trickle（P0-2）：不再逐个 wsSend 候选；offer 等 gathering 完成后一次性带全部候选发出。
   peer.onicecandidate = (e) => { logLocalCandidate('file', e.candidate) }
