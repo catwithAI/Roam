@@ -178,6 +178,13 @@ export default function BrowserView() {
   const touchRef = useRef({ x: 0, y: 0, t: 0, moved: false })
   const lastEmuRef = useRef('')       // 上次已发的 emulate 载荷（去重：载荷没变绝不重发 → 不重设视口 → 不跳）
   const emuTimerRef = useRef(0 as any) // emulate 防抖计时器
+  // 中文等输入法（IME）输入：普通 div 持焦时浏览器不会启动输入法组合，敲拼音只会落下
+  // 原始字母。用一个视觉隐藏的 textarea 承接焦点与组合过程，组合结束后把整段文本经
+  // 现有 char 消息发往远端（后端 Input.insertText 支持多字符）。textarea 定位在最近
+  // 一次点击处，让候选词窗口出现在输入位置附近而不是面板角落。
+  const imeRef = useRef<HTMLTextAreaElement>(null)
+  const composingRef = useRef(false)
+  const [imePos, setImePos] = useState({ x: 8, y: 8 })
 
   // control 开关用 ref 同步，供事件回调读取最新值
   useEffect(() => { controlRef.current = control }, [control])
@@ -468,7 +475,16 @@ export default function BrowserView() {
     if (!controlRef.current) return
     e.preventDefault()
     const pt = mapXY(e)
-    if (sub === 'down') { stageRef.current?.focus(); addRipple(e); dragRef.current = { x: pt.x, y: pt.y, active: true, moved: false } } // 拿焦点 + 涟漪 + 记拖动起点
+    if (sub === 'down') {
+      const st = stageRef.current
+      if (st) {
+        const r = st.getBoundingClientRect()
+        setImePos({ x: e.clientX - r.left, y: e.clientY - r.top })
+      }
+      imeRef.current?.focus({ preventScroll: true }) // 焦点落在隐藏 textarea 上，输入法才会启动组合
+      addRipple(e)
+      dragRef.current = { x: pt.x, y: pt.y, active: true, moved: false } // 记拖动起点
+    } // 拿焦点 + 涟漪 + 记拖动起点
     send({ type: 'mouse', sub, x: pt.x, y: pt.y, button: 'left', buttons: sub === 'down' ? 1 : 0, modifiers: mods(e) })
     if (sub === 'up') {
       const d = dragRef.current
@@ -567,8 +583,19 @@ export default function BrowserView() {
       () => send({ type: 'paste' }),
     )
   }
+  // 组合结束（或非组合的文本插入，如 macOS 长按选音标）后，把 textarea 里攒出的整段
+  // 文本一次发往远端。组合中的退格/选词等按键都由输入法在本地消费，不会到这里。
+  const flushIme = () => {
+    const ta = imeRef.current
+    if (!ta || !ta.value) return
+    send({ type: 'key', sub: 'char', text: ta.value })
+    ta.value = ''
+  }
   const onKey = (e: React.KeyboardEvent) => {
     if (!controlRef.current) return
+    // 输入法组合中：按键属于输入法（key 为 "Process"/keyCode 229），不转发也不
+    // preventDefault，否则组合被打断；组合结果统一由 flushIme 发送。
+    if (composingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) return
     const mod = e.ctrlKey || e.metaKey
     // 复制/粘贴走「跨屏」桥，不把组合键转发给远端：用本机剪贴板，不碰远端那台机器的剪贴板
     if (mod && (e.key === 'v' || e.key === 'V')) { e.preventDefault(); pasteFromClipboard(); return }
@@ -717,6 +744,32 @@ export default function BrowserView() {
             height: rotated ? stage.w : Math.round((stage.w * vp.h) / vp.w),
             objectFit: 'contain',
             transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+          }}
+        />
+        <textarea
+          ref={imeRef}
+          aria-label={t('browser.imeProxyLabel')}
+          tabIndex={-1}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          onCompositionStart={() => { composingRef.current = true }}
+          onCompositionEnd={() => { composingRef.current = false; flushIme() }}
+          onInput={() => {
+            // 组合中的中间态（isComposing 的 input 事件）不发；只有非组合插入
+            //（如 macOS 长按选音标）才在这里落地。
+            if (!composingRef.current) flushIme()
+          }}
+          onBlur={() => {
+            // 失焦时丢弃半截组合，避免残留拼音在下次聚焦时被误发到远端。
+            composingRef.current = false
+            if (imeRef.current) imeRef.current.value = ''
+          }}
+          style={{
+            position: 'absolute', left: imePos.x, top: imePos.y, width: 2, height: 2,
+            opacity: 0, padding: 0, border: 'none', outline: 'none', resize: 'none',
+            overflow: 'hidden', background: 'transparent', caretColor: 'transparent',
+            pointerEvents: 'none',
           }}
         />
         {ripples.map((p) => (
