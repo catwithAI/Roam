@@ -3,7 +3,11 @@
 // 其余字段（fallback/cancel/local/remote/rttMs）先按规格声明，供后续里程碑复用。
 
 // —— 信令（JSON，走 /api/p2p/signal WS，每消息带 transferId）——
-export type SignalType = 'offer' | 'answer' | 'ice' | 'connected' | 'fallback' | 'cancel'
+// link：Phase 1a 通用传输，会话级 control/media/file 常驻 PC 的链路态（左边栏全局状态）。
+export type SignalType = 'offer' | 'answer' | 'ice' | 'connected' | 'fallback' | 'cancel' | 'link'
+
+// 流量类：control|media|file；空=file（现有下载，向后兼容）。
+export type SignalClass = 'control' | 'media' | 'file'
 
 // connected 的 path：ipv6-direct | upnp | stun | lan
 export type PathKind = 'ipv6-direct' | 'upnp' | 'stun' | 'lan'
@@ -22,14 +26,16 @@ export interface TransferReq {
 export interface SignalMsg {
   type: SignalType
   transferId: string
+  class?: SignalClass    // control|media|file；空=file（现有下载，向后兼容）
   sdp?: string
   candidate?: RTCIceCandidateInit
   transfer?: TransferReq // 仅 offer
-  path?: string          // connected: ipv6-direct|upnp|stun|lan
+  path?: string          // connected/link: ipv6-direct|upnp|stun|lan
   local?: CandInfo
   remote?: CandInfo
   rttMs?: number
   reason?: string        // fallback|cancel
+  state?: 'up' | 'down'  // link: 链路上/下（左边栏状态）
 }
 
 // —— 传输（DataChannel 之上，保留消息边界）——

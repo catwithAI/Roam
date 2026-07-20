@@ -38,6 +38,8 @@ import { usePreferences, savePreferences, loadPreferences } from './preferences'
 import { PromptDialog, detectPrompt } from './prompt'
 import { copyText } from './chat/blocks'
 import { VoiceInput } from './chat/VoiceInput'
+import LinkStatus from './p2p/LinkStatus'
+import { startControlLink, stopControlLink } from './p2p/transport'
 
 interface ClaudeInfo { running: boolean; file?: string; dir?: string }
 
@@ -244,6 +246,7 @@ export default function App() {
   }
   const { mode, toggle: toggleTheme } = useThemeMode()
   const { t } = useI18n()
+  const [prefs] = usePreferences()
   const themeIcon = mode === 'dark'
     ? svg(<><circle cx="12" cy="12" r="4.2" /><path d="M12 2v2.2M12 19.8V22M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2 12h2.2M19.8 12H22M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6" /></>)
     : svg(<><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" /></>)
@@ -322,6 +325,13 @@ export default function App() {
     const t = setInterval(check, 5000)
     return () => { stop = true; clearInterval(t) }
   }, [authed, terms])
+
+  // 通用传输 Phase 1a：登录后且用户偏好开 P2P → 建会话级常驻 control PC（左边栏全局状态）。
+  // 偏好关闭 / 登出即拆链。P2P 是否真正可用由 transport 内部拉 /api/p2p/config 决定。
+  useEffect(() => {
+    if (authed && prefs.p2pDownloadEnabled) startControlLink()
+    else stopControlLink()
+  }, [authed, prefs.p2pDownloadEnabled])
 
   if (authed === null) return <div style={{ height: '100dvh', display: 'grid', placeItems: 'center' }}><Spin size="large" /></div>
   if (!authed) return <Login onOk={() => { setAuthed(true); loadPreferences(); go('overview') }} />
@@ -479,8 +489,9 @@ export default function App() {
               )}
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>{menu}</div>
-            {/* 底部：收起 在上，其次 全屏，最后 退出，始终竖向堆叠（展开带文字，折叠仅图标居中）。*/}
+            {/* 底部：全局 P2P 链路状态在最上（未启用时自隐藏），其次 关于/收起/全屏/退出，竖向堆叠。*/}
             <div style={{ borderTop: '1px solid var(--border-subtle)', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <LinkStatus collapsed={collapsed} />
               <Button type="text" block onClick={() => go('about')} title={t('nav.about')}
                 style={{ ...bottomBtnStyle, color: tab === 'about' ? '#58a6ff' : 'var(--text-dim)' }}>
                 {collapsed ? ICONS.github : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{ICONS.github}{t('nav.about')}</span>}
