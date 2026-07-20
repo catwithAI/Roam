@@ -2301,6 +2301,19 @@ function PromptPopupCard() {
   )
 }
 
+function P2PDownloadCard() {
+  const { t } = useI18n()
+  const [prefs, setPrefs] = usePreferences()
+  return (
+    <Card title={t('settings.p2pDownload')}>
+      <Space align="center" wrap>
+        <Switch checked={prefs.p2pDownloadEnabled} onChange={(on) => setPrefs({ p2pDownloadEnabled: on })} />
+        <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('settings.p2pDownloadHelp')}</span>
+      </Space>
+    </Card>
+  )
+}
+
 function QuickCommandsCard() {
   const { message } = AntApp.useApp()
   const { t } = useI18n()
@@ -2665,6 +2678,7 @@ function EnvPage() {
           <AgentCommandsCard />
           <QuickCommandsCard />
           <PromptPopupCard />
+          <P2PDownloadCard />
           <Card title={t('install.settingsTitle')}>
             <Space align="center" wrap>
               {pwaInstalled

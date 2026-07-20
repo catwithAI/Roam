@@ -8,6 +8,7 @@ import { download as p2pDownload } from './p2p/download'
 import { pathLabelKey, type P2PPathLabel } from './p2p/labels'
 import { P2PTransferStatus, type TransferView } from './p2p/P2PTransferStatus'
 import { recentDirs } from './App'
+import { usePreferences } from './preferences'
 import { dirname, fileNameOf, fmtSize, joinPath, normalizePath } from './file-utils'
 import { copyText } from './chat/blocks'
 import {
@@ -351,6 +352,7 @@ export default function FileBrowser({
   const { message, modal } = AntApp.useApp()
   const { t, locale } = useI18n()
   const isMobile = !Grid.useBreakpoint().md // 手机护栏：窄屏视作移动端
+  const [prefs] = usePreferences() // P2P 直连下载开关（设置页可关，网络抖动时回退纯 frp）
 
   // 会话切换（dir 变化）→ 回到工作目录根，并重置历史
   useEffect(() => {
@@ -563,6 +565,11 @@ export default function FileBrowser({
     setTransfers((list) => list.map((tf) => (tf.id === id ? { ...tf, ...patch } : tf)))
   const dropTransfer = (id: string) => setTransfers((list) => list.filter((tf) => tf.id !== id))
   const downloadEntry = (target: FileTarget) => {
+    // 用户开关关闭（网络抖动等）→ 一律走 frp 中转，不碰 P2P。
+    if (!prefs.p2pDownloadEnabled) {
+      legacyAnchorDownload(target)
+      return
+    }
     // 手机护栏（技术拆解 §4.5）：目录、无 showSaveFilePicker、或 (移动端 && >50MB)
     // → 直接走 legacy 系统下载；否则走 P2P 直连状态机（picker 先行 + 回退写同一 handle）。
     const tooBigOnMobile = isMobile && !target.dir && target.size > 50 * 1024 * 1024

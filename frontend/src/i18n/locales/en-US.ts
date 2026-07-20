@@ -217,6 +217,8 @@ const enUS = {
   'prompt.popupOff': 'Popup reminder off — click to enable',
   'settings.promptPopupDefault': 'Popup Reminder',
   'settings.promptPopupDefaultHelp': 'When enabled, a popup appears when an agent awaits confirmation. Can also be toggled from the terminal toolbar.',
+  'settings.p2pDownload': 'P2P Direct Download',
+  'settings.p2pDownloadHelp': 'When enabled, downloads use a P2P direct connection to bypass frp bandwidth in supported networks; turn off on flaky networks to always use the frp relay.',
   'update.newVersion': 'New version available',
   'update.later': 'Later',
   'file.openedInAgent': 'Opened in {agent}',
