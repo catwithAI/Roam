@@ -1,26 +1,25 @@
 // 左边栏全局 P2P 链路状态（设计 §3）。
 //
 // 反映会话主连接（control PC）状态：
-//   connecting → 「… 连接中」
-//   connected  → 「⚡ 直连 · <path 标签>」（绿）
-//   relay      → 「↻ 中转」（琥珀）
+//   connecting → 「连接中」（灰）
+//   connected  → 「直连 · <path 标签>」（绿）
+//   relay      → 「中转」（琥珀）
 //   disabled   → 隐藏（未启用/偏好关）
-// 点开详情浮层：control 链路 path、RTT 诊断、（预留 media/file 位）。
+// 点开详情浮层：control / media（镜像）/ file（文件）三条链路各自 path。
 //
 // 数据源：信令 link 消息 → transport.ts 的 store（subscribeLink/getLinkStatus）。
-// 复用 M2 的 pathLabelKey/i18n；新增文案走 i18n（zh-CN/en-US）。
+// 图标为内联 SVG「P2P 双节点」logo（无 emoji），颜色随状态变。
 
 import { useState, useSyncExternalStore } from 'react'
 import { useI18n } from '../i18n'
 import { pathLabelKey } from './labels'
 import { subscribeLink, getLinkStatus, type LinkState } from './transport'
 
-// 订阅全局 control 链路状态。
 function useLinkStatus() {
   return useSyncExternalStore(subscribeLink, getLinkStatus, getLinkStatus)
 }
 
-// 预留子链路（media/file）状态行的 i18n key。
+// 子链路（media 镜像 / file 文件）状态行的 i18n key。
 const SUBLINK_STATE_KEY: Record<LinkState, string> = {
   disabled: 'p2p.link.sub.idle',
   connecting: 'p2p.link.sub.connecting',
@@ -28,7 +27,21 @@ const SUBLINK_STATE_KEY: Record<LinkState, string> = {
   relay: 'p2p.link.sub.relay',
 }
 
-// collapsed：左边栏折叠时只显图标点（不显文案），点开详情仍可用。
+// 侧边栏 P2P logo：两个节点 + 直连横线（P2P 直连语义）。relay 时中间加一个中转节点。
+// 颜色随状态由外部传入（字体也带同色）。
+function P2PLogo({ color, relay = false, size = 15 }: { color: string; relay?: boolean; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden style={{ flex: '0 0 auto' }}>
+      <line x1="6" y1="12" x2="18" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round"
+        strokeDasharray={relay ? '2 2.5' : undefined} />
+      <circle cx="5" cy="12" r="3.2" fill={color} />
+      <circle cx="19" cy="12" r="3.2" fill={color} />
+      {relay && <circle cx="12" cy="12" r="2.4" fill="var(--bg-base)" stroke={color} strokeWidth="1.6" />}
+    </svg>
+  )
+}
+
+// collapsed：左边栏折叠时只显 logo（不显文案），点开详情仍可用。
 export function LinkStatus({ collapsed = false }: { collapsed?: boolean }) {
   const { t } = useI18n()
   const status = useLinkStatus()
@@ -41,19 +54,27 @@ export function LinkStatus({ collapsed = false }: { collapsed?: boolean }) {
   const isRelay = status.state === 'relay'
 
   let color = 'var(--text-dim)'
-  let bg = 'rgba(148,163,184,0.14)'
-  let icon = '…'
   let text: string
   if (isP2P) {
-    color = '#3fb950'; bg = 'rgba(63,185,80,0.14)'; icon = '⚡'
+    color = '#3fb950'
     text = t('p2p.link.direct', { path: t(pathLabelKey(status.path)) })
   } else if (isRelay) {
-    color = '#d29922'; bg = 'rgba(210,153,34,0.16)'; icon = '↻'
+    color = '#d29922'
     text = t('p2p.link.relay')
   } else {
-    icon = '…'
     text = t('p2p.link.connecting')
   }
+
+  const subRow = (labelKey: string, state: LinkState | undefined, path: string | undefined) => (
+    <>
+      <span style={{ color: 'var(--text-dim)' }}>{t(labelKey)}</span>
+      <span style={{ color: state === 'connected' ? '#3fb950' : state === 'relay' ? '#d29922' : 'var(--text-dimmer)' }}>
+        {state === 'connected'
+          ? t('p2p.link.sub.directPath', { path: t(pathLabelKey(path)) })
+          : t(SUBLINK_STATE_KEY[state ?? 'disabled'])}
+      </span>
+    </>
+  )
 
   return (
     <div style={{ position: 'relative' }}>
@@ -62,52 +83,41 @@ export function LinkStatus({ collapsed = false }: { collapsed?: boolean }) {
         onClick={() => setOpen((v) => !v)}
         title={text}
         style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-          border: 'none', borderRadius: 6, padding: collapsed ? '4px 6px' : '4px 10px',
-          fontSize: 12, fontWeight: 600, color, background: bg,
+          // 与底部「关于/收起」按钮对齐：14px 字号、logo 左边缘落在 24px（同 bottomBtnStyle paddingLeft）。
+          display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+          border: 'none', borderRadius: 6, padding: collapsed ? '6px' : '6px 15px 6px 24px',
+          fontSize: 14, fontWeight: 500, color, background: 'transparent',
           width: '100%', justifyContent: collapsed ? 'center' : 'flex-start',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}
       >
-        <span aria-hidden style={{ flex: '0 0 auto' }}>{icon}</span>
+        <P2PLogo color={color} relay={isRelay} size={16} />
         {!collapsed && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>}
       </button>
 
       {open && (
         <div style={{
           position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, zIndex: 60,
-          minWidth: 220, padding: '8px 10px', borderRadius: 8, fontSize: 12,
+          minWidth: 226, padding: '9px 11px', borderRadius: 8, fontSize: 12,
           background: 'var(--bg-base)', border: '1px solid var(--border-subtle)',
           boxShadow: '0 6px 20px rgba(0,0,0,.35)',
         }}>
-          <div style={{ fontWeight: 700, color: 'var(--text-bright)', marginBottom: 6 }}>{t('p2p.link.title')}</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'max-content minmax(0,1fr)', gap: '4px 10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontWeight: 700, color: 'var(--text-bright)', marginBottom: 8 }}>
+            <P2PLogo color={color} relay={isRelay} size={16} />
+            {t('p2p.link.title')}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'max-content minmax(0,1fr)', gap: '5px 10px' }}>
             <span style={{ color: 'var(--text-dim)' }}>{t('p2p.link.control')}</span>
-            <span style={{ color, fontWeight: 600 }}>
-              {isP2P ? t('p2p.link.direct', { path: t(pathLabelKey(status.path)) }) : isRelay ? t('p2p.link.relay') : t('p2p.link.connecting')}
-            </span>
-
-            <span style={{ color: 'var(--text-dim)' }}>{t('p2p.detail.path')}</span>
-            <span style={{ color: 'var(--text-bright)' }}>{isP2P ? t(pathLabelKey(status.path)) : t('p2p.detail.na')}</span>
+            <span style={{ color, fontWeight: 600 }}>{text}</span>
 
             <span style={{ color: 'var(--text-dim)' }}>{t('p2p.detail.rtt')}</span>
-            <span>{status.rttMs != null && status.rttMs > 0 ? t('p2p.detail.rttMs', { ms: Math.round(status.rttMs) }) : t('p2p.detail.na')}</span>
+            <span style={{ color: 'var(--text-bright)' }}>{status.rttMs != null && status.rttMs > 0 ? t('p2p.detail.rttMs', { ms: Math.round(status.rttMs) }) : t('p2p.detail.na')}</span>
 
-            {/* media 类 PC（Phase 1b：镜像）。connected 时带命中路径，与主连接同款展示。 */}
-            <span style={{ color: 'var(--text-dim)' }}>{t('p2p.link.media')}</span>
-            <span style={{ color: 'var(--text-dimmer)' }}>
-              {status.media === 'connected'
-                ? t('p2p.link.sub.directPath', { path: t(pathLabelKey(status.mediaPath)) })
-                : t(SUBLINK_STATE_KEY[status.media ?? 'disabled'])}
-            </span>
+            {/* media 类 PC（镜像：浏览器/手机镜像开启时按需建）。 */}
+            {subRow('p2p.link.media', status.media, status.mediaPath)}
 
-            {/* file 类临时 PC（下载时按需建，用完即拆）。connected 时带命中路径，与 media 同款展示。 */}
-            <span style={{ color: 'var(--text-dim)' }}>{t('p2p.link.file')}</span>
-            <span style={{ color: 'var(--text-dimmer)' }}>
-              {status.file === 'connected'
-                ? t('p2p.link.sub.directPath', { path: t(pathLabelKey(status.filePath)) })
-                : t(SUBLINK_STATE_KEY[status.file ?? 'disabled'])}
-            </span>
+            {/* file 类临时 PC（下载时按需建，用完即拆）。 */}
+            {subRow('p2p.link.file', status.file, status.filePath)}
           </div>
         </div>
       )}

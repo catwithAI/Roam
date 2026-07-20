@@ -36,7 +36,7 @@ const zhCN = {
   'p2p.link.control': '主连接',
   'p2p.link.media': '镜像',
   'p2p.link.file': '文件',
-  'p2p.link.sub.idle': '未启用',
+  'p2p.link.sub.idle': '空闲',
   'p2p.link.sub.connecting': '连接中',
   'p2p.link.sub.connected': '直连',
   'p2p.link.sub.relay': '中转',

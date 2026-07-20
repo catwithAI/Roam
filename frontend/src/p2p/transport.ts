@@ -114,9 +114,31 @@ function clearTimers() {
   if (connectTimer) { clearTimeout(connectTimer); connectTimer = 0 }
 }
 
+// 实时 RTT：control 连上后每 1.5s getStats 取选中候选对的 currentRoundTripTime → store，
+// 让左边栏「往返时延」动态刷新（后端 connected/link 只给初值，静态）。
+let rttTimer = 0
+function startRttPoll(peer: RTCPeerConnection) {
+  stopRttPoll()
+  rttTimer = window.setInterval(() => {
+    if (pc !== peer || status.state !== 'connected') return
+    peer.getStats().then((stats) => {
+      let rtt: number | undefined
+      stats.forEach((r) => {
+        const rr = r as { type?: string; nominated?: boolean; selected?: boolean; state?: string; currentRoundTripTime?: number }
+        if (rr.type === 'candidate-pair' && (rr.nominated || rr.selected) && typeof rr.currentRoundTripTime === 'number') {
+          rtt = rr.currentRoundTripTime
+        }
+      })
+      if (rtt != null) setStatus({ rttMs: Math.round(rtt * 1000) })
+    }).catch(() => { /* ignore */ })
+  }, 1500)
+}
+function stopRttPoll() { if (rttTimer) { clearInterval(rttTimer); rttTimer = 0 } }
+
 // 拆当前一轮 control 连接（幂等），保留 store 状态由调用方决定。
 function teardown() {
   clearTimers()
+  stopRttPoll()
   try { controlChannel?.close() } catch { /* ignore */ }
   try { pc?.close() } catch { /* ignore */ }
   try { ws?.close() } catch { /* ignore */ }
@@ -238,6 +260,7 @@ async function negotiate() {
       if (connectTimer) { clearTimeout(connectTimer); connectTimer = 0 }
       attempt = 0 // 连上即重置退避
       setStatus({ state: 'connected', path: (m.path as P2PPathLabel) ?? undefined, rttMs: m.rttMs })
+      startRttPoll(peer) // 连上后实时刷新 RTT
     } else if (m.type === 'link') {
       // 后端 OnSelectedCandidatePairChange → link{state:up|down, path, rttMs}，左边栏据此更新。
       if (m.state === 'down') {

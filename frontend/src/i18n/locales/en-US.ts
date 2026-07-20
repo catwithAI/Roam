@@ -36,7 +36,7 @@ const enUS = {
   'p2p.link.control': 'Main link',
   'p2p.link.media': 'Mirror',
   'p2p.link.file': 'Files',
-  'p2p.link.sub.idle': 'Off',
+  'p2p.link.sub.idle': 'Idle',
   'p2p.link.sub.connecting': 'Connecting',
   'p2p.link.sub.connected': 'Direct',
   'p2p.link.sub.relay': 'Relay',
