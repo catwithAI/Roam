@@ -6,7 +6,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   Layout, Menu, Button, Card, List, Tag, Form, Input, Select, Segmented, Tabs, Descriptions,
-  Statistic, Row, Col, Space, Popconfirm, Empty, Modal, Grid, App as AntApp, Typography, Spin, Tooltip, Dropdown, Checkbox, Progress, AutoComplete, Radio, Switch, Collapse,
+  Statistic, Row, Col, Space, Popconfirm, Empty, Modal, Grid, App as AntApp, Typography, Spin, Tooltip, Dropdown, Checkbox, Progress, AutoComplete, Radio, Switch, Collapse, InputNumber,
 } from 'antd'
 import { QRCodeSVG } from 'qrcode.react'
 import { api, upload, makeClipboardImageFile, setUnauthorizedHandler } from './api'
@@ -2315,11 +2315,39 @@ function PromptPopupCard() {
 function P2PCard() {
   const { t } = useI18n()
   const [prefs, setPrefs] = usePreferences()
+  const on = prefs.p2pEnabled
+  const dim = { color: 'var(--text-dim)', fontSize: 12 }
+  const hint = { color: 'var(--text-dimmer)', fontSize: 11 }
   return (
     <Card title={t('settings.p2p')}>
-      <Space align="center" wrap>
-        <Switch checked={prefs.p2pEnabled} onChange={(on) => setPrefs({ p2pEnabled: on })} />
-        <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('settings.p2pHelp')}</span>
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Space align="center" wrap>
+          <Switch checked={on} onChange={(v) => setPrefs({ p2pEnabled: v })} />
+          <span style={dim}>{t('settings.p2pHelp')}</span>
+        </Space>
+        {/* STUN 服务器（留空用服务端默认）。仅影响本浏览器的打洞。 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, opacity: on ? 1 : 0.5 }}>
+          <span style={dim}>{t('settings.p2pStun')}</span>
+          <Input
+            disabled={!on} allowClear value={prefs.p2pStunServers}
+            placeholder={t('settings.p2pStunPh')}
+            onChange={(e) => setPrefs({ p2pStunServers: e.target.value })}
+            style={{ maxWidth: 460 }}
+          />
+          <span style={hint}>{t('settings.p2pStunHelp')}</span>
+        </div>
+        {/* 连接超时（秒）：打洞建链超时后回退 frp。 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, opacity: on ? 1 : 0.5 }}>
+          <span style={dim}>{t('settings.p2pTimeout')}</span>
+          <Space align="center" wrap>
+            <InputNumber
+              disabled={!on} min={5} max={120} step={5} value={prefs.p2pConnectTimeoutSec}
+              onChange={(v) => setPrefs({ p2pConnectTimeoutSec: typeof v === 'number' ? v : 30 })}
+              addonAfter={t('settings.p2pTimeoutUnit')} style={{ width: 130 }}
+            />
+            <span style={hint}>{t('settings.p2pTimeoutHelp')}</span>
+          </Space>
+        </div>
       </Space>
     </Card>
   )

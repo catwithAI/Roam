@@ -75,9 +75,13 @@ export function getLinkStatus(): LinkStatus {
 // 之前 2s 基数会几秒一次 churn，跨网 ICE（STUN 往返 + trickle srflx + 连通性检查）根本来不及。
 const RECONNECT_BASE_MS = 5_000
 const RECONNECT_MAX_MS = 60_000
-// 建链超时放宽到 30s：跨网需要 STUN 往返 + trickle srflx + 连通性检查，10s 到点拆 PC 会
-// 丢掉已 gather 的 srflx，永远连不上。且只有在「仍无候选对进展」时超时才判失败（见 negotiate）。
-const CONNECT_TIMEOUT_MS = 30_000
+// 建链超时（默认 30s，设置页可调 5–120s）：跨网需要 STUN 往返 + trickle srflx + 连通性检查，
+// 太短到点拆 PC 会丢掉已 gather 的 srflx、永远连不上。只有「仍无候选对进展」时超时才判失败（见 negotiate）。
+const DEFAULT_CONNECT_TIMEOUT_MS = 30_000
+function connectTimeoutMs() {
+  const s = getPreferences().p2pConnectTimeoutSec
+  return typeof s === 'number' && s >= 5 && s <= 120 ? s * 1000 : DEFAULT_CONNECT_TIMEOUT_MS
+}
 
 interface P2PConfig {
   iceServers?: RTCIceServer[]
@@ -103,6 +107,12 @@ async function fetchIce(): Promise<RTCIceServer[] | null> {
     if (!r.ok) return null
     const data = await r.json().catch(() => null)
     const cfg: P2PConfig = data?.data ?? data ?? {}
+    // 用户在设置页自定义了 STUN → 用它覆盖服务端默认（仅影响本浏览器侧打洞）。
+    const userStun = getPreferences().p2pStunServers?.trim()
+    if (userStun) {
+      const urls = userStun.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
+      if (urls.length) return [{ urls }]
+    }
     return Array.isArray(cfg.iceServers) ? cfg.iceServers : []
   } catch {
     return null
@@ -228,7 +238,7 @@ async function negotiate() {
     console.log(`[p2p-ice control] connect timeout with no progress (gathering=${gathering} ice=${ice}); scheduling reconnect`)
     setStatus({ state: 'relay', path: 'frp' })
     scheduleReconnect()
-  }, CONNECT_TIMEOUT_MS)
+  }, connectTimeoutMs())
 
   peer.onicecandidate = (e) => {
     logLocalCandidate('control', e.candidate)
@@ -409,7 +419,7 @@ async function negotiateMedia() {
     console.log(`[p2p-ice media] connect timeout with no progress (gathering=${gathering} ice=${ice}); scheduling reconnect`)
     setMedia('relay')
     scheduleMediaReconnect()
-  }, CONNECT_TIMEOUT_MS)
+  }, connectTimeoutMs())
 
   peer.onicecandidate = (e) => {
     logLocalCandidate('media', e.candidate)
@@ -627,7 +637,7 @@ export async function connectFile(opts: ConnectFileOptions): Promise<FilePeer> {
       console.log(`[p2p-ice file] connect timeout with no progress (gathering=${gathering} ice=${ice}); falling back`)
     }
     fail('timeout')
-  }, CONNECT_TIMEOUT_MS)
+  }, connectTimeoutMs())
 
   peer.onicecandidate = (e) => {
     logLocalCandidate('file', e.candidate)
