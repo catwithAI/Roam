@@ -7,6 +7,7 @@ package p2p
 
 import (
 	"log"
+	"net"
 
 	"github.com/pion/ice/v4"
 	"github.com/pion/webrtc/v4"
@@ -25,15 +26,23 @@ type iceOptions struct {
 func buildAPI(opt iceOptions) (api *webrtc.API, injectedUPnPIP string) {
 	se := webrtc.SettingEngine{}
 
-	// IPv4 + IPv6 都收集候选（IPv6 直连是评审点1的价值来源）。
-	se.SetNetworkTypes([]webrtc.NetworkType{
-		webrtc.NetworkTypeUDP4,
-		webrtc.NetworkTypeUDP6,
-	})
+	// 网络类型：始终开 UDP4；仅当本机存在可路由的全局 IPv6（非 fe80 链路本地、非 ::1、
+	// 非 ULA fc00::/7）时才加 UDP6。没有全局 v6 却开 UDP6，pion 会对着无出口的 v6 地址
+	// 反复尝试 gather，刷 "udp6 network unreachable" 日志并拖慢/干扰 v4 侧 srflx 收集。
+	netTypes := []webrtc.NetworkType{webrtc.NetworkTypeUDP4}
+	if hasGlobalIPv6() {
+		netTypes = append(netTypes, webrtc.NetworkTypeUDP6)
+		log.Printf("p2p ice: global IPv6 present, enabling UDP4+UDP6")
+	} else {
+		log.Printf("p2p ice: no global IPv6, enabling UDP4 only")
+	}
+	se.SetNetworkTypes(netTypes)
 
-	// mDNS：解析浏览器藏成 xxxx.local 的私网候选（同 LAN 快速通道）。默认开。
+	// mDNS：只「解析」浏览器藏成 xxxx.local 的私网候选，但服务器自身**播报真实 LAN IP**
+	// （QueryOnly，不 Gather）——否则服务器 host 候选是 xxxx.local，跨子网/远端浏览器解析不了，
+	// 白白丢掉同网 host↔host 直连的机会。服务器不是隐私敏感端，播报真实内网 IP 更有用。
 	if opt.mdns {
-		se.SetICEMulticastDNSMode(ice.MulticastDNSModeQueryAndGather)
+		se.SetICEMulticastDNSMode(ice.MulticastDNSModeQueryOnly)
 	}
 
 	// 固定 UDP 端口 + UDPMux：仅在配置端口>0 时启用。端口=0 完全走 M0a 路径。
@@ -57,6 +66,48 @@ func buildAPI(opt iceOptions) (api *webrtc.API, injectedUPnPIP string) {
 	}
 
 	return webrtc.NewAPI(webrtc.WithSettingEngine(se)), injectedUPnPIP
+}
+
+// hasGlobalIPv6 报告本机是否有可路由的全局 IPv6 地址（可作为直连候选的那种）。
+// 排除：环回(::1)、链路本地(fe80::/10)、唯一本地(ULA fc00::/7)、以及 IPv4/映射地址。
+// 仅统计 up 且非 loopback 网卡上的地址。
+func hasGlobalIPv6() bool {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+	for _, ifi := range ifaces {
+		if ifi.Flags&net.FlagUp == 0 || ifi.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := ifi.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			var ip net.IP
+			switch v := a.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.To4() != nil {
+				continue // 非 IPv6
+			}
+			if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				continue
+			}
+			// ULA fc00::/7（IsPrivate 对 v6 即判 ULA）：不是全局可路由，跳过。
+			if ip.IsPrivate() {
+				continue
+			}
+			if ip.IsGlobalUnicast() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // rtcConfiguration 从配置的 ICE server 列表构造 webrtc.Configuration。

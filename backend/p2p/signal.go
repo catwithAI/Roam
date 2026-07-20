@@ -36,8 +36,9 @@ var upgrader = websocket.Upgrader{
 // SignalMsg 是信令线协议（JSON，走 /api/p2p/signal），每消息带 transferId。
 // 见 p2p-direct-transfer-tech.md §2.1。M0a 只用到 offer/answer/ice/connected/cancel。
 type SignalMsg struct {
-	Type       string           `json:"type"`       // offer|answer|ice|connected|fallback|cancel
-	TransferID string           `json:"transferId"` //
+	Type       string           `json:"type"`            // offer|answer|ice|connected|fallback|cancel|link
+	TransferID string           `json:"transferId"`      //
+	Class      string           `json:"class,omitempty"` // control|media|file；空=file（现有下载，向后兼容）
 	SDP        string           `json:"sdp,omitempty"`
 	Candidate  *json.RawMessage `json:"candidate,omitempty"`
 	Transfer   *TransferReq     `json:"transfer,omitempty"` // 仅 offer
@@ -46,6 +47,7 @@ type SignalMsg struct {
 	Remote     *CandInfo        `json:"remote,omitempty"`
 	RTTMs      int              `json:"rttMs,omitempty"`
 	Reason     string           `json:"reason,omitempty"` // fallback|cancel
+	State      string           `json:"state,omitempty"`  // link: up|down（left rail 状态）
 }
 
 // TransferReq 仅在 offer 携带：{path:/abs, op:"download"}。

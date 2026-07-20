@@ -8,7 +8,6 @@ package p2p
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net"
 	"strings"
@@ -36,25 +35,32 @@ const (
 )
 
 // transfer 是单次传输（每次下载一个独立 PC）。
+// 建链/answer/ice/状态回调走共享底层 peer（pc.go）；transfer 只保留「临时生命周期 +
+// 文件协议所需的 cancel/done」。connected 复用 peer.connected（空闲超时判活）。
 type transfer struct {
-	id        string
-	pc        *webrtc.PeerConnection
-	cancel    context.CancelFunc // 取消发送 goroutine（贯穿到 os.Open 读循环）
-	done      int32              // 原子终结标志，回退/取消后忽略后续
-	connected int32              // 原子：已进入 Connected，空闲超时不再拆
+	id     string
+	*peer                     // 共享底层 PC（建链/answer/ice/classifyPath 唯一实现）
+	cancel context.CancelFunc // 取消发送 goroutine（贯穿到 os.Open 读循环）
+	done   int32              // 原子终结标志，回退/取消后忽略后续
 }
 
-// session 是一条 WS 的作用域：transferId → *transfer。
+// session 是一条 WS 的作用域：transferId → *transfer；class → *link（持久 PC）。
 type session struct {
 	hub  *Hub
 	send func(SignalMsg) error
 
-	mu   sync.Mutex
-	tfrs map[string]*transfer
+	mu    sync.Mutex
+	tfrs  map[string]*transfer
+	links map[string]*link // class（"control" 等）→ 会话级常驻 PC
 }
 
 func (h *Hub) newSession(send func(SignalMsg) error) *session {
-	return &session{hub: h, send: send, tfrs: make(map[string]*transfer)}
+	return &session{
+		hub:   h,
+		send:  send,
+		tfrs:  make(map[string]*transfer),
+		links: make(map[string]*link),
+	}
 }
 
 func (s *session) get(id string) *transfer {
@@ -82,26 +88,39 @@ func (s *session) finish(id string) {
 	if t.cancel != nil {
 		t.cancel()
 	}
-	if t.pc != nil {
-		_ = t.pc.Close()
-	}
+	t.close() // 幂等关闭共享底层 PC
 }
 
-// closeAll 在 WS 断开时清理所有 transfer。
+// closeAll 在 WS 断开时清理所有 transfer 与持久 link PC。
 func (s *session) closeAll() {
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.tfrs))
 	for id := range s.tfrs {
 		ids = append(ids, id)
 	}
+	links := make([]*link, 0, len(s.links))
+	for _, l := range s.links {
+		links = append(links, l)
+	}
+	s.links = make(map[string]*link)
 	s.mu.Unlock()
 	for _, id := range ids {
 		s.finish(id)
 	}
+	for _, l := range links {
+		l.close()
+	}
 }
 
 // onSignal 分发一条信令消息。
+//
+// Phase 1a：class=="control"（及后续 media）走会话级常驻 link PC；
+// class 为空或 "file" 走原有「每下载一个 file PC」逻辑，行为不变（向后兼容）。
 func (s *session) onSignal(m SignalMsg) {
+	if isLinkClass(m.Class) {
+		s.onLinkSignal(m)
+		return
+	}
 	switch m.Type {
 	case "offer":
 		s.startTransfer(m)
@@ -112,18 +131,25 @@ func (s *session) onSignal(m SignalMsg) {
 	}
 }
 
-// addICE 转发 trickle ICE 候选给对应 PC。
+// addICE 转发 trickle ICE 候选给对应 PC（走共享底层）。
 func (s *session) addICE(m SignalMsg) {
 	t := s.get(m.TransferID)
-	if t == nil || m.Candidate == nil {
+	if t == nil {
 		return
 	}
-	var init webrtc.ICECandidateInit
-	if err := json.Unmarshal(*m.Candidate, &init); err != nil {
-		return
-	}
-	if err := t.pc.AddICECandidate(init); err != nil {
-		log.Printf("p2p: AddICECandidate(%s): %v", m.TransferID, err)
+	s.addRemoteICE(t.peer, transferPeerConfig(m.TransferID), m.Candidate)
+}
+
+// transferPeerConfig 构造临时 file PC 的底层参数：按 transferId 定位、不逐条打印候选、
+// 只在 Failed/Closed 拆（不理会 Disconnected，与收敛前一致）。onConnected/onDown/onDataChannel
+// 在 startTransfer 里补齐（需捕获具体 *transfer 与 offer 里的 op/path）。
+func transferPeerConfig(id string) peerConfig {
+	return peerConfig{
+		keyLog:             "transfer=" + id,
+		signalKey:          id,
+		byClass:            false,
+		verboseCand:        false,
+		downOnDisconnected: false,
 	}
 }
 
@@ -141,13 +167,47 @@ func (s *session) startTransfer(m SignalMsg) {
 		_ = s.send(SignalMsg{Type: "fallback", TransferID: m.TransferID, Reason: "too-many-transfers"})
 		return
 	}
-	pc, err := s.hub.api.NewPeerConnection(s.hub.rtcConfig)
+	id := m.TransferID
+	cfg := transferPeerConfig(id)
+	// Connected 回调：发 connected 信令（字段与收敛前一致）。
+	cfg.onConnected = func(path string, local, remote *CandInfo, rtt int) {
+		log.Printf("p2p: transfer=%s connected path=%s local=%+v remote=%+v", id, path, local, remote)
+		_ = s.send(SignalMsg{
+			Type:       "connected",
+			TransferID: id,
+			Path:       path,
+			Local:      local,
+			Remote:     remote,
+			RTTMs:      rtt,
+		})
+	}
+	cfg.onDown = func() { s.finish(id) }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// 对端（浏览器）建的 DataChannel：
+	//   op=="spike" → transport 自测支路，发 8 MiB 随机数据 + eof（window.roamP2PSpike）；
+	//   否则 → 真实文件（serveFile：共享校验 + 分块 + 背压 + 取消）。
+	var op, path string
+	if m.Transfer != nil {
+		op = m.Transfer.Op
+		path = m.Transfer.Path
+	}
+
+	p, err := s.newPeer(cfg)
 	if err != nil {
-		log.Printf("p2p: NewPeerConnection(%s): %v", m.TransferID, err)
+		log.Printf("p2p: NewPeerConnection(%s): %v", id, err)
+		cancel()
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	t := &transfer{id: m.TransferID, pc: pc, cancel: cancel}
+	t := &transfer{id: id, peer: p, cancel: cancel}
+	// OnDataChannel 需捕获 t/ctx/op/path，故在 peer 建好、t 组装后再补挂（覆盖 newPeer 里的 nil）。
+	p.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		if op == "spike" {
+			serveSpike(ctx, dc, t)
+			return
+		}
+		serveFile(ctx, dc, t, path)
+	})
 	s.put(t)
 
 	// 空闲超时（评审点8）：建 PC 后若 pcIdleTimeout 内仍未连上 → 拆掉，防半开 PC 泄漏。
@@ -164,76 +224,8 @@ func (s *session) startTransfer(m SignalMsg) {
 		}
 	}()
 
-	// trickle ICE：本端候选回传前端。
-	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-		if c == nil {
-			return
-		}
-		raw, err := json.Marshal(c.ToJSON())
-		if err != nil {
-			return
-		}
-		rm := json.RawMessage(raw)
-		_ = s.send(SignalMsg{Type: "ice", TransferID: t.id, Candidate: &rm})
-	})
-
-	pc.OnConnectionStateChange(func(st webrtc.PeerConnectionState) {
-		log.Printf("p2p: transfer=%s connectionState=%s", t.id, st.String())
-		switch st {
-		case webrtc.PeerConnectionStateConnected:
-			atomic.StoreInt32(&t.connected, 1)
-			path, local, remote, rtt := classifyPath(pc, s.hub.upnpIP)
-			log.Printf("p2p: transfer=%s connected path=%s local=%+v remote=%+v", t.id, path, local, remote)
-			_ = s.send(SignalMsg{
-				Type:       "connected",
-				TransferID: t.id,
-				Path:       path,
-				Local:      local,
-				Remote:     remote,
-				RTTMs:      rtt,
-			})
-		case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
-			s.finish(t.id)
-		}
-	})
-
-	// 对端（浏览器）建的 DataChannel：
-	//   op=="spike" → transport 自测支路，发 8 MiB 随机数据 + eof（window.roamP2PSpike）；
-	//   否则 → 真实文件（serveFile：共享校验 + 分块 + 背压 + 取消）。
-	var op, path string
-	if m.Transfer != nil {
-		op = m.Transfer.Op
-		path = m.Transfer.Path
-	}
-	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		if op == "spike" {
-			serveSpike(ctx, dc, t)
-			return
-		}
-		serveFile(ctx, dc, t, path)
-	})
-
-	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDPTypeOffer,
-		SDP:  m.SDP,
-	}); err != nil {
-		log.Printf("p2p: SetRemoteDescription(%s): %v", m.TransferID, err)
-		s.finish(t.id)
-		return
-	}
-	ans, err := pc.CreateAnswer(nil)
-	if err != nil {
-		log.Printf("p2p: CreateAnswer(%s): %v", m.TransferID, err)
-		s.finish(t.id)
-		return
-	}
-	if err := pc.SetLocalDescription(ans); err != nil {
-		log.Printf("p2p: SetLocalDescription(%s): %v", m.TransferID, err)
-		s.finish(t.id)
-		return
-	}
-	if err := s.send(SignalMsg{Type: "answer", TransferID: t.id, SDP: ans.SDP}); err != nil {
-		log.Printf("p2p: send answer(%s): %v", m.TransferID, err)
+	// 设远端 offer、回 answer——建链样板走共享底层（pc.go）。失败即拆。
+	if err := s.answerOffer(p, cfg, m.SDP); err != nil {
 		s.finish(t.id)
 	}
 }
