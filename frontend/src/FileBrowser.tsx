@@ -1,7 +1,7 @@
 // 文件侧栏 —— 在 Claude / Codex 对话页右侧浏览工作目录、查看文件内容（类似 codex 右侧边栏）。
 // 单层可导航列表：目录在前可进入、↑ 回上级、点文件在弹层里查看正文。
 import { type ReactNode, Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { AutoComplete, Button, ConfigProvider, Dropdown, Grid, Input, Modal, Spin, App as AntApp, Tooltip, type MenuProps } from 'antd'
+import { AutoComplete, Button, ConfigProvider, Dropdown, Input, Modal, Spin, App as AntApp, Tooltip, type MenuProps } from 'antd'
 import { api, upload } from './api'
 import { useI18n } from './i18n'
 import { download as p2pDownload } from './p2p/download'
@@ -351,7 +351,6 @@ export default function FileBrowser({
   const uploadTargetRef = useRef<string | null>(null)
   const { message, modal } = AntApp.useApp()
   const { t, locale } = useI18n()
-  const isMobile = !Grid.useBreakpoint().md // 手机护栏：窄屏视作移动端
   const [prefs] = usePreferences() // P2P 直连下载开关（设置页可关，网络抖动时回退纯 frp）
 
   // 会话切换（dir 变化）→ 回到工作目录根，并重置历史
@@ -570,10 +569,12 @@ export default function FileBrowser({
       legacyAnchorDownload(target)
       return
     }
-    // 手机护栏（技术拆解 §4.5）：目录、无 showSaveFilePicker、或 (移动端 && >50MB)
-    // → 直接走 legacy 系统下载；否则走 P2P 直连状态机（picker 先行 + 回退写同一 handle）。
-    const tooBigOnMobile = isMobile && !target.dir && target.size > 50 * 1024 * 1024
-    if (target.dir || !('showSaveFilePicker' in window) || tooBigOnMobile) {
+    // 护栏（技术拆解 §4.5）：只有目录仍走 legacy（目录 P2P 是后续）。
+    // 大小/浏览器能力判断已收敛进 download.ts 的三级 sink：
+    //   picker（Chromium 桌面）/ StreamSaver（移动端·Firefox·Safari，自托管流式落盘，不占内存、任意大小）
+    //   都是流式落盘，移动端大文件也走 P2P；只有「无 picker 且无 StreamSaver 且超 Blob 上限」才由
+    //   download.ts 经 blobFallback 回退 frp。故此处不再对移动端大文件无脑走 frp。
+    if (target.dir) {
       legacyAnchorDownload(target)
       return
     }
@@ -596,6 +597,9 @@ export default function FileBrowser({
         window.setTimeout(() => dropTransfer(id), 4000)
       },
       onError: (msg) => { message.error(t('p2p.downloadFailed', { message: msg })); dropTransfer(id) },
+    }, {
+      // Blob sink 路径（无 picker）P2P 真失败时兜底：触发 legacy frp 系统下载（唯一一次）。
+      blobFallback: () => legacyAnchorDownload(target),
     })
   }
   const showProperties = async (target: FileTarget) => {
