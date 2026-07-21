@@ -362,6 +362,7 @@ const zhCN = {
   'browser.quality.ultra': '超清',
   'browser.noDebuggableTab': '没有可调试的标签页',
   'browser.rotateTitle': '旋转画面 90°（手机竖屏看横屏）',
+  'browser.imeProxyLabel': '键盘输入代理（承接输入法组合）',
   'browser.connected': '已连接',
   'browser.disconnected': '未连接',
   'browser.launchFailed': '连不上镜像 Chrome',

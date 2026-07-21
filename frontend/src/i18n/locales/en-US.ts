@@ -362,6 +362,7 @@ const enUS = {
   'browser.quality.ultra': 'Ultra',
   'browser.noDebuggableTab': 'No debuggable tab',
   'browser.rotateTitle': 'Rotate 90° for portrait screens',
+  'browser.imeProxyLabel': 'Keyboard input proxy (captures IME composition)',
   'browser.connected': 'Connected',
   'browser.disconnected': 'Disconnected',
   'browser.launchFailed': 'Cannot reach the mirrored Chrome',
